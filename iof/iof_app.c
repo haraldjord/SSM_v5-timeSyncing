@@ -271,8 +271,10 @@ void iof_app( osjob_t *j ) {
 }
 
 void BURTC_IRQHandler(void) {
+    //debug_str("Inside BURTC_IRQHandler\n");
+
     uint32_t int_mask = BURTC_IntGet();
-	BURTC_IntClear(int_mask);
+	  BURTC_IntClear(int_mask);
 
     if (int_mask & BURTC_IF_COMP0){
 		static uint16_t ticks = 0;
@@ -282,6 +284,7 @@ void BURTC_IRQHandler(void) {
 
 		// sync tbr at next decasecond if new valid time data is available (tbr_do_sync)
 		if (tbr_do_sync && (iof_unix_ts % 10 == 0)) {
+		  debug_str("tbr_do_sync handler\n");
 			tbr_do_sync = false;
 			os_setCallback(&tbr_job, sync_tbr);
 		}
@@ -289,22 +292,26 @@ void BURTC_IRQHandler(void) {
 		// GNSS //
 		// restart nav data polling
 		if (ticks == 600) {
+		    debug_str("nav data polling handler\n");
 			os_setCallback(&gnss_job, poll_navdata);
 		}
 
 		// IOF APPLICATION //
 		// schedule app once a minute
 		if (ticks % 240 == 0) {
+		    debug_str("schedule app once a minute\n");
 			os_setCallback(&app_job, iof_app);
 		}
 
 		// Status LEDs and display
 		if(ticks % 5 == 0) {
+		    debug_str("status LED handler (5sec)\n");
 			os_setCallback(&blink_job, LEDs_set);
 			os_setCallback(&display_job, iof_update_display);
 		}
 
 		if (ticks >= 720) {
+		    debug_str("send slimData handler\n");
 			send_slimData = true;
 			ticks = 0;
 		}

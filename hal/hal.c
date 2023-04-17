@@ -44,7 +44,7 @@ static void hal_io_init(){
 
 static void hal_spi_init(){
     spi_init();
-	spi_enable();
+	  spi_enable();
 }
 
 static void hal_time_init(){
@@ -93,7 +93,7 @@ static void hal_reset_radio( void ) {
 //////////////////////// INTERRUPT HANDLERS //////////////////////////
 
 void RTC_IRQHandler(void) {
-	debug_str("\tRTC IRQ\n");
+	//debug_str("\tRTC IRQ\n");
 	if (RTC_IntGet() & RTC_IF_OF) {
 		++HAL.ticks;
 	}
