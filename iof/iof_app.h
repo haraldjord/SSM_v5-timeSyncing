@@ -14,6 +14,7 @@
 #include "../devices_header/analog.h"
 #include "iof_protocol.h"
 #include "../devices_header/display.h"
+#include "em_letimer.h"
 
 #include "em_burtc.h"
 

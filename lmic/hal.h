@@ -41,6 +41,7 @@
 extern "C"{
 #endif
 
+
 // The type of an optional user-defined failure handler routine
 typedef void LMIC_ABI_STD hal_failure_handler_t(const char* const file, const uint16_t line);
 

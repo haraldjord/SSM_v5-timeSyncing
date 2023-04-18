@@ -16,6 +16,19 @@ static struct {
     int8_t irqlevel;
     uint64_t ticks;
 } HAL;
+////////////////////////////////////////////////
+/// pulse per second time synchronization
+#define N_SAMPLES   4
+#define BASE_2_N  16    //-1 done inside if...
+uint32_t  one_sec_top_ref=32768; // must be extern as its used in iof_app.c
+static  bool    letimer_running=false;
+static  int     last_letimer_count=65535;
+static  uint16_t  average_n=0;
+static  uint32_t  avergae_sum=0;
+static  uint32_t  ref_count=0;
+/////////////////////////////////////////////////
+
+
 
 const bit_t lmic_pins;
 //////////////////////// STATIC FUNCTIONS ////////////////////////////
@@ -107,16 +120,45 @@ void RTC_IRQHandler(void) {
 extern void radio_irq_handler(u1_t dio);
 
 void GPIO_EVEN_IRQHandler() {
-    debug_str("\tEVEN IRQ\n");
+    //debug_str("\tEVEN IRQ\n");
     u4_t int_mask = GPIO_IntGetEnabled();
     int_mask &= ~(1UL << GPS_INT);   // TODO: hvordan bør en sørge for at bare even int blir cleared?
     GPIO_IntClear(int_mask);
 
-    if (int_mask & (1 << RADIO_IO_0)) radio_irq_handler(0);
+    //if (int_mask & (1 << RADIO_IO_0)) radio_irq_handler(0);
 
-    if (int_mask & (1 << RADIO_IO_2)) radio_irq_handler(2);
+    //if (int_mask & (1 << RADIO_IO_2)) radio_irq_handler(2);
 
-    if (int_mask & (1 << GPS_TIME_PULSE)) status_led_gps_toggle();
+    if (int_mask & (1 << GPS_TIME_PULSE)){
+        //debug_str("Inside GPS TIME PULSE Handler\n");
+        status_led_gps_toggle();
+
+        if(letimer_running){
+          LETIMER_Enable(LETIMER0,false);
+          //sprintf(debug_str_buf, "LETIMER0 counter: %ul\n", LETIMER_CounterGet(LETIMER0));
+          //debug_str(debug_str_buf);
+          if(LETIMER_CounterGet(LETIMER0)>last_letimer_count){
+            avergae_sum+=(uint32_t)(LETIMER_CounterGet(LETIMER0)-last_letimer_count);
+          }
+          else{
+            avergae_sum+=(uint32_t)(last_letimer_count-LETIMER_CounterGet(LETIMER0));
+          }
+          last_letimer_count=LETIMER_CounterGet(LETIMER0);
+          letimer_running=false;
+          average_n++;
+          if(average_n>BASE_2_N-1){
+            one_sec_top_ref=avergae_sum>>N_SAMPLES;
+            avergae_sum=0;
+            average_n=0;
+          }
+        }
+        else{
+          LETIMER_Enable(LETIMER0,true);
+          letimer_running=true;
+        }
+        ref_count++; // OBSOLETE??
+
+    }
 
 }
 

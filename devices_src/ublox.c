@@ -41,7 +41,7 @@ static void rx_ubx_msgs( void ) {
 		if (c != SYNCH_2) break;
 
 		ubx_msg_t msg;
-		msg.ubx_class 	= spi_read_byte();
+		msg.ubx_class 	= spi_read_byte(); // class = 1
 		msg.ubx_id 		= spi_read_byte();
 
 		msg.length		= spi_read_byte();

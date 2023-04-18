@@ -11,9 +11,13 @@
 #define WAKEUP_INTERVAL_SEC	1
 #define BURTC_TOP			((LFXO_FREQUENCY * WAKEUP_INTERVAL_SEC) - 1)
 
+#define   BASIC_SYNCH_SECONDS     10
+#define   ADVANCE_SYNCH_SECONDS   600 // todo is this a good time interval
+
 /*
  * Shared variables
  */
+extern  uint32_t  one_sec_top_ref;
 
 osjob_t app_job;
 uint8_t node_id = 0xFF;
@@ -32,7 +36,7 @@ static osjob_t display_job;
 // TBR
 static bool tbr_connected = false;
 static bool tbr_in_sync = false;
-static bool tbr_do_sync = false;
+static bool tbr_do_advance_sync = false;
 
 static bool send_slimData = true;
 
@@ -133,11 +137,11 @@ static void poll_navdata( osjob_t *j ) {
 	if (gnss_is_validPosData() && gnss_is_validTimeData()) {
 		sprintf(debug_str_buf, "IOF: GNSS fix acquired! Time to fix: %lu. Retries: %u\n", iof_unix_ts - search_ts, retries);
 		debug_str(debug_str_buf);
-		gnss_force_OFF();
+		//gnss_force_OFF(); do not turn off to use the 1PPS timer synchronization??
 
 		// UNIX Time
 		iof_unix_ts = 1 + gnss_get_timeData(); // data is 1 second old
-		tbr_do_sync = true;
+		tbr_do_advance_sync = true;
 
 		// POSITION
 		gnss_get_posData(&last_pos);
@@ -177,7 +181,21 @@ static void ping_tbr( osjob_t *j ) {
 	os_setTimedCallback(j, os_getTime() + sec2osticks(1), ping_tbr_rx_SN);
 }
 
-static void sync_tbr_is_ack( osjob_t *j ) {
+static void sync_tbr_basic_is_act(osjob_t * j){
+  if (tbr_is_ack01()){
+      tbr_in_sync = true;
+      tbr_connected = true;
+      debug_str("IOF: basic time sync of TBR successed\n");
+  }
+  else{
+      tbr_in_sync = false; // todo rename flag to tbr_in_sync_basic??
+      tbr_connected = false;
+      debug_str("IOF: basic time sync of TBR FAILED!\n");
+  }
+
+}
+
+static void sync_tbr_advance_is_ack( osjob_t *j ) {
 	if (tbr_is_ack02()) {
 		tbr_in_sync = true;
 		tbr_connected = true;
@@ -190,14 +208,31 @@ static void sync_tbr_is_ack( osjob_t *j ) {
 }
 
 static void sync_tbr( osjob_t *j ) {
-	tbr_advancedTimeSync(iof_unix_ts);
-
-	// schedule ack reception
-	os_setTimedCallback(j, os_getTime() + sec2osticks(1), sync_tbr_is_ack);
+  if(tbr_do_advance_sync){
+      tbr_do_advance_sync = false;
+      tbr_advancedTimeSync(iof_unix_ts);
+      os_setTimedCallback(j, os_getTime() + sec2osticks(1), sync_tbr_advance_is_ack); // schedule ack reception
+  }
+  else if(!tbr_do_advance_sync){
+      tbr_basicTimeSync();
+      os_setTimedCallback(j, os_getTime() + sec2osticks(1), sync_tbr_basic_is_act);
+  }
+  else{
+      debug_str("Invalid syncing of TBR!\n");
+  }
 }
 
 static void time_manager_init( void ) {
 
+  /////////////GPS PPS and INT pins////////////
+  GPIO_PinModeSet(GPS_SIG_PORT, GPS_TIME_PULSE, gpioModeInput, 0);
+  GPIO_IntConfig(GPS_SIG_PORT,GPS_TIME_PULSE,true,false,true);
+  GPIO_IntClear(_GPIO_IF_MASK);
+  NVIC_EnableIRQ(GPIO_EVEN_IRQn);
+
+
+  /////////////BURTC and LETIMER////////////
+  //Setup and initialize BURTC
 	RMU_ResetControl(rmuResetBU, rmuResetModeClear);
     /////////////BURTC ////////////
     // Setup and initialize BURTC
@@ -214,7 +249,14 @@ static void time_manager_init( void ) {
 	NVIC_ClearPendingIRQ(BURTC_IRQn);
 	NVIC_EnableIRQ(BURTC_IRQn);
 
-	// Start BURTC
+  //Setup and initialize LETIMER
+  LETIMER_Init_TypeDef  letimer_init=LETIMER_INIT_DEFAULT;
+  letimer_init.enable=false;
+  CMU_ClockEnable(cmuClock_LETIMER0, true);
+  LETIMER_Reset(LETIMER0);
+  LETIMER_Init(LETIMER0,&letimer_init);
+
+  // Start BURTC
     BURTC_Enable(true);
 }
 
@@ -247,7 +289,7 @@ void iof_app_init( osjob_t *j ) {
 	time_manager_init();
 
 	// LoRaWAN
-	lpwan_init();
+	lpwan_init(); //LoRa radio not beeing used.
 
 	// Init complete. Turn off status LED
 	set_status_led(false, false);
@@ -278,34 +320,47 @@ void BURTC_IRQHandler(void) {
 
     if (int_mask & BURTC_IF_COMP0){
 		static uint16_t ticks = 0;
+		static uint16_t unix_time_min = 0;
 
 		iof_unix_ts++;
 		ticks++; // 1 ticks = 1 second!
 
-		// sync tbr at next decasecond if new valid time data is available (tbr_do_sync)
-		if (tbr_do_sync && (iof_unix_ts % 10 == 0)) {
+
+
+		if (ticks % 60 == 0){
+		    unix_time_min ++;
+		    sprintf(debug_str_buf, "Time since startup in minutes %d\n", unix_time_min);
+		    debug_str(debug_str_buf);
+		}
+
+		// sync tbr at next decasecond if new valid time data is available (tbr_do_advance_sync)
+		if ((ticks % BASIC_SYNCH_SECONDS) == 0 && ticks !=0) {
+        sprintf(debug_str_buf, "one sec top ref: %lu\n", one_sec_top_ref);
+        debug_str(debug_str_buf);
+	       if(one_sec_top_ref>32000 && one_sec_top_ref<33000){
+	           BURTC_CompareSet(0,one_sec_top_ref);
+	       }
 		  debug_str("tbr_do_sync handler\n");
-			tbr_do_sync = false;
-			os_setCallback(&tbr_job, sync_tbr);
+			os_setCallback(&tbr_job, sync_tbr); // basic sync every 10 sec, advanced sync when new valid time data is available (from GPS)
 		}
 
 		// GNSS //
 		// restart nav data polling
-		if (ticks == 600) {
+		if ((ticks % ADVANCE_SYNCH_SECONDS) == 0 && ticks !=0) { // does it need new timestamp every 10 minute???
 		    debug_str("nav data polling handler\n");
-			os_setCallback(&gnss_job, poll_navdata);
+		    os_setCallback(&gnss_job, poll_navdata);
 		}
 
 		// IOF APPLICATION //
-		// schedule app once a minute
+		// schedule app once 4 minutes
 		if (ticks % 240 == 0) {
-		    debug_str("schedule app once a minute\n");
+		    debug_str("schedule app after 4 minutes\n");
 			os_setCallback(&app_job, iof_app);
 		}
 
 		// Status LEDs and display
 		if(ticks % 5 == 0) {
-		    debug_str("status LED handler (5sec)\n");
+		    //debug_str("status LED handler (5sec)\n");
 			os_setCallback(&blink_job, LEDs_set);
 			os_setCallback(&display_job, iof_update_display);
 		}
