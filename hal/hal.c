@@ -22,6 +22,7 @@ static struct {
 #define BASE_2_N  16    //-1 done inside if...
 uint32_t  one_sec_top_ref=32768; // must be extern as its used in iof_app.c
 static  bool    letimer_running=false;
+bool     restart_timer_by_PPSPulse = true;
 static  int     last_letimer_count=65535;
 static  uint16_t  average_n=0;
 static  uint32_t  avergae_sum=0;
@@ -130,8 +131,13 @@ void GPIO_EVEN_IRQHandler() {
     //if (int_mask & (1 << RADIO_IO_2)) radio_irq_handler(2);
 
     if (int_mask & (1 << GPS_TIME_PULSE)){
-        //debug_str("Inside GPS TIME PULSE Handler\n");
-        status_led_gps_toggle();
+        //debug_str("GPS TIME PULSE\n");
+        //status_led_gps_toggle();
+
+        if(restart_timer_by_PPSPulse){ // restart BURTC timer at PPS pulse to sync all devices.
+            restart_timer_by_PPSPulse = false;
+            BURTC_CounterReset();
+        }
 
         if(letimer_running){
           LETIMER_Enable(LETIMER0,false);
@@ -156,6 +162,7 @@ void GPIO_EVEN_IRQHandler() {
           LETIMER_Enable(LETIMER0,true);
           letimer_running=true;
         }
+
         ref_count++; // OBSOLETE??
 
     }

@@ -199,8 +199,9 @@ static void parse_tbr_ack(char* ack_str) {
 	else if (strncmp(ack_str, "ack02", 5) == 0) ack02 = true;
 }
 
-static void parse_rs485_buffer( void ) {
-	static char tbr_rx_buf[1024];
+//static void parse_rs485_buffer( void ) {
+void parse_rs485_buffer( void ) {
+  static char tbr_rx_buf[1024];
 	tbr_rx_buf[1023] = 0; // null terminated string
 	uint16_t len = 0;
 	char c = 1;

@@ -11,18 +11,22 @@
 #define WAKEUP_INTERVAL_SEC	1
 #define BURTC_TOP			((LFXO_FREQUENCY * WAKEUP_INTERVAL_SEC) - 1)
 
-#define   BASIC_SYNCH_SECONDS     10
-#define   ADVANCE_SYNCH_SECONDS   600 // todo is this a good time interval
+#define   SYNC_PPS                10
+#define   BASIC_SYNCH_SECONDS     180
+#define   ADVANCE_SYNCH_SECONDS   600 // todo is this a good time interval?
 
 /*
  * Shared variables
  */
 extern  uint32_t  one_sec_top_ref;
+extern bool restart_timer_by_PPSPulse;
 
 osjob_t app_job;
 uint8_t node_id = 0xFF;
 pos_t last_pos = {.fix = 0, .numSV = 0};
-uint32_t iof_unix_ts = 0;
+uint32_t iof_unix_ts = 0; // latest time stamp from gps
+uint32_t iof_unix_ref = 0; // time stamp after initiating from gps
+static bool first_time_stamp  = true;
 
 /*
  * Private variables
@@ -32,6 +36,8 @@ static osjob_t gnss_job;
 static osjob_t tbr_job;
 static osjob_t blink_job;
 static osjob_t display_job;
+static osjob_t send_tbr_buffer_job;
+static osjob_t PPS_warning;
 
 // TBR
 static bool tbr_connected = false;
@@ -137,10 +143,29 @@ static void poll_navdata( osjob_t *j ) {
 	if (gnss_is_validPosData() && gnss_is_validTimeData()) {
 		sprintf(debug_str_buf, "IOF: GNSS fix acquired! Time to fix: %lu. Retries: %u\n", iof_unix_ts - search_ts, retries);
 		debug_str(debug_str_buf);
-		//gnss_force_OFF(); do not turn off to use the 1PPS timer synchronization??
+		//gnss_force_OFF(); do not turn off to use the 1PPS timer synchronization
 
 		// UNIX Time
-		iof_unix_ts = 1 + gnss_get_timeData(); // data is 1 second old
+		if (first_time_stamp){ // get time stamp after initiating
+		    first_time_stamp = 0;
+		    iof_unix_ref = 1 + gnss_get_timeData(); // data is 1 second old
+		    iof_unix_ts = iof_unix_ref;
+		}
+		else{
+		    iof_unix_ts = 1 + gnss_get_timeData(); // data is 1 second old
+        if (iof_unix_ref>iof_unix_ts){// print time difference from initiating in unix time
+            sprintf(debug_str_buf,"time difference from first gps time stamp: %lu, where ref>ts\n", (iof_unix_ref-iof_unix_ts));
+            debug_str(debug_str_buf);
+        }else if (iof_unix_ts>iof_unix_ref){
+            sprintf(debug_str_buf,"time difference from first gps time stamp: %lu, where ts>ref\n", (iof_unix_ts-iof_unix_ref));
+            debug_str(debug_str_buf);
+        }else if (iof_unix_ts == iof_unix_ref){
+            sprintf(debug_str_buf,"time difference from first gps time stamp: %d, is zero!!\n", 0);
+            debug_str(debug_str_buf);
+        }
+
+		}
+
 		tbr_do_advance_sync = true;
 
 		// POSITION
@@ -243,7 +268,8 @@ static void time_manager_init( void ) {
     burtc_init.mode = burtcModeEM4;
     BURTC_Reset();
     BURTC_Init(&burtc_init);
-    BURTC_CompareSet(0, BURTC_TOP);
+    //BURTC_CompareSet(0, BURTC_TOP);
+    BURTC_CompareSet(0, one_sec_top_ref);
     BURTC_IntDisable(_BURTC_IF_MASK);
     BURTC_IntEnable(BURTC_IF_COMP0);
 	NVIC_ClearPendingIRQ(BURTC_IRQn);
@@ -289,7 +315,10 @@ void iof_app_init( osjob_t *j ) {
 	time_manager_init();
 
 	// LoRaWAN
-	lpwan_init(); //LoRa radio not beeing used.
+	//lpwan_init(); //LoRa radio not beeing used.
+
+	// Sync TBR after getting unix timestamp from gps
+	//os_setCallback(&tbr_job, sync_tbr); does not work, basic sync is happening....
 
 	// Init complete. Turn off status LED
 	set_status_led(false, false);
@@ -309,7 +338,17 @@ void iof_app( osjob_t *j ) {
 	if (!tbr_connected) {
 		os_setCallback(&tbr_job, ping_tbr);
 	}
+}
 
+void send_tbr_buffer(osjob_t *j){
+//  if (!tbr_get_next_tbrMsg(&msg))
+//      debug_str("tbg msg buffer empty!\n");
+    parse_rs485_buffer();
+}
+
+void send_PPS_warning(osjob_t *j){ // todo rename function
+  sprintf(debug_str_buf, "one sec top ref: %lu\n", one_sec_top_ref);
+  debug_str(debug_str_buf);
 }
 
 void BURTC_IRQHandler(void) {
@@ -320,55 +359,70 @@ void BURTC_IRQHandler(void) {
 
     if (int_mask & BURTC_IF_COMP0){
 		static uint16_t ticks = 0;
-		static uint16_t unix_time_min = 0;
+		static uint16_t startup_time_min = 0;
 
 		iof_unix_ts++;
+		iof_unix_ref++;
 		ticks++; // 1 ticks = 1 second!
-
+		//sprintf(debug_str_buf, "Unix time: %lu\n", iof_unix_ref);
+		//debug_str(debug_str_buf);
 
 
 		if (ticks % 60 == 0){
-		    unix_time_min ++;
-		    sprintf(debug_str_buf, "Time since startup in minutes %d\n", unix_time_min);
+		    startup_time_min ++;
+		    sprintf(debug_str_buf, "Time since startup in minutes %d\n", startup_time_min);
 		    debug_str(debug_str_buf);
 		}
 
-		// sync tbr at next decasecond if new valid time data is available (tbr_do_advance_sync)
-		if ((ticks % BASIC_SYNCH_SECONDS) == 0 && ticks !=0) {
-        sprintf(debug_str_buf, "one sec top ref: %lu\n", one_sec_top_ref);
-        debug_str(debug_str_buf);
+		if ((ticks % SYNC_PPS) == 0 && ticks !=0) {
 	       if(one_sec_top_ref>32000 && one_sec_top_ref<33000){
 	           BURTC_CompareSet(0,one_sec_top_ref);
 	       }
-		  debug_str("tbr_do_sync handler\n");
-			os_setCallback(&tbr_job, sync_tbr); // basic sync every 10 sec, advanced sync when new valid time data is available (from GPS)
+         os_setCallback(&PPS_warning, send_PPS_warning);
+
+		}
+		// sync tbr at next decasecond if new valid time data is available (tbr_do_advance_sync)
+		// TODO use iof_unix_ts to schedule syncing, to ensure that all tbr hydrophones are synced at the same time??
+		if ((iof_unix_ts % BASIC_SYNCH_SECONDS) == 0){
+      //debug_str("tbr_do_sync handler\n");
+      os_setCallback(&tbr_job, sync_tbr); // basic sync every 10 sec, advanced sync when new valid time data is available (from GPS)
+    }
+
+		if(iof_unix_ts % 10 && tbr_do_advance_sync){
+		    os_setCallback(&tbr_job, sync_tbr);
 		}
 
 		// GNSS //
 		// restart nav data polling
-		if ((ticks % ADVANCE_SYNCH_SECONDS) == 0 && ticks !=0) { // does it need new timestamp every 10 minute???
-		    debug_str("nav data polling handler\n");
+		if ((iof_unix_ts % ADVANCE_SYNCH_SECONDS) == 0 && ticks !=0) { // does it need new timestamp every 10 minute???
+		    //debug_str("nav data polling handler\n");
 		    os_setCallback(&gnss_job, poll_navdata);
+		}
+		if((iof_unix_ts % (ADVANCE_SYNCH_SECONDS - 5)) == 0 && ticks != 0){
+		    restart_timer_by_PPSPulse = true;
 		}
 
 		// IOF APPLICATION //
 		// schedule app once 4 minutes
 		if (ticks % 240 == 0) {
-		    debug_str("schedule app after 4 minutes\n");
-			os_setCallback(&app_job, iof_app);
+		    //debug_str("schedule app after 4 minutes\n");
+		    //os_setCallback(&app_job, iof_app);
 		}
 
 		// Status LEDs and display
-		if(ticks % 5 == 0) {
+		if(iof_unix_ts % 5 == 0) {
 		    //debug_str("status LED handler (5sec)\n");
-			os_setCallback(&blink_job, LEDs_set);
-			os_setCallback(&display_job, iof_update_display);
+
+		    os_setCallback(&app_job, iof_app);
+        os_setCallback(&send_tbr_buffer_job, send_tbr_buffer);
+        os_setCallback(&blink_job, LEDs_set);
+        os_setCallback(&display_job, iof_update_display);
 		}
 
 		if (ticks >= 720) {
-		    debug_str("send slimData handler\n");
-			send_slimData = true;
-			ticks = 0;
+		    //debug_str("send slimData handler\n");
+			//send_slimData = true;
+			//ticks = 0;
 		}
         //WDOG_Feed();
     }
