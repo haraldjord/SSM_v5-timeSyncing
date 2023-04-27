@@ -33,11 +33,12 @@
 // TBR Sensor msg: "$<tbrSN>,<unix_ts>,TBR Sensor,<temperature>,<avgNoise>,<peakNoise>,<noiseFreq>,<memAddr>\r"
 // TAG msg: "$<tbrSN>,<unix_ts>,<millisec>,<tagProt>,<tagID>,<tagData>,<SNR>,<tagFreq>,<memAddr>\r"
 typedef struct {
+   bool newTagDetection;
 	// general data
-	uint8_t		codetype; // resolved from <tagProt> and <tagFreq>, or TBR_SENSOR_CODETYPE
+	  uint8_t		codetype; // resolved from <tagProt> and <tagFreq>, or TBR_SENSOR_CODETYPE
     uint16_t    tbrSN;
     uint32_t    unix_ts;
-	uint32_t	memAddr;
+	  uint32_t	memAddr;
 
 	// tag specific data
     uint16_t    millisec;
@@ -45,7 +46,7 @@ typedef struct {
     uint32_t    tagID;
     uint16_t    tagData;
     uint8_t     SNR;
-	uint8_t		tagFreq;
+	  uint8_t		tagFreq;
 
 	// TBR sensor specific data
     uint16_t    temperature;

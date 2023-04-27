@@ -13,6 +13,11 @@
 #include "../devices_header/ublox_msg.h"
 
 /*
+ * public variables
+ */
+extern uint8_t node_id;
+
+/*
  * private variables
  */
 static ubx_msg_t ubx_msgs[UBX_MAX_BUFFER_LENGTH];
@@ -20,7 +25,8 @@ static struct fifo_descriptor fifo_ubx_msgs_s;
 static fifo_t fifo_ubx_msgs = &fifo_ubx_msgs_s;
 
 static sat_data_t sat_data = {0,0};
-static nav_data_t nav_data = {.valid_time = false, .valid_pos = false, .fix = 0, .numSV = 0};
+static nav_data_t nav_data = {.valid_time = false, .newData = false, .valid_pos = false, .fix = 0, .numSV = 0};
+static uint8_t nav_data_buf[1024]; // buffer to transmit over rs232
 /*
  * private functions
  */
@@ -256,8 +262,23 @@ static void parse_nav_pvt_payload(uint8_t *payload) {
 	else {
 		nav_data.valid_pos	= false;
 	}
+	if(nav_data.valid_pos && nav_data.valid_time)
+	    nav_data.newData = true;
 
 	nav_data.numSV		= payload[23];
+}
+
+static void parse_nav_buf(void){
+  // add data from gps to buffer before sending over rs-232 here:
+  /*uint8_t   numSV;
+  int32_t   longitude;
+  int32_t   latitude;
+  uint16_t  pDOP;
+  uint8_t   fix;
+  */
+
+  sprintf(nav_data_buf, "ID:%d longitude: %ld latitude: %ld\n", node_id, nav_data.longitude, nav_data.latitude);
+  debug_str(nav_data_buf);
 }
 
 static bool poll_nav_pvt( void ) {
@@ -400,4 +421,11 @@ void gnss_force_ON( void ) {
 void gnss_force_OFF( void ) {
 	debug_str("GNSS: Force OFF\n");
 	GPIO_PinOutClear(GPS_SIG_PORT, GPS_INT);
+}
+
+void sendGPS_data(void){ // send data over rs232 radio
+  if (nav_data.newData == true){
+      parse_nav_buf();
+      nav_data.newData = false;
+  }
 }

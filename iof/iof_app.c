@@ -13,20 +13,27 @@
 
 #define   SYNC_PPS                10
 #define   BASIC_SYNCH_SECONDS     180
-#define   ADVANCE_SYNCH_SECONDS   600 // todo is this a good time interval?
+#define   ADVANCE_SYNCH_SECONDS   300 // todo is this a good time interval?
+#define   DEBUG_MODE 1 // 1--> use rs232 for debug. 0--> use rs232 with radio only
+
 
 /*
  * Shared variables
  */
 extern  uint32_t  one_sec_top_ref;
 extern bool restart_timer_by_PPSPulse;
+bool tbr_basic_sync_msg = false;
+bool tbr_advance_sync_msg = false;
+bool tbr_connected = false;
+bool tbr_in_sync = false;
+
 
 osjob_t app_job;
 uint8_t node_id = 0xFF;
 pos_t last_pos = {.fix = 0, .numSV = 0};
 uint32_t iof_unix_ts = 0; // latest time stamp from gps
-uint32_t iof_unix_ref = 0; // time stamp after initiating from gps
-static bool first_time_stamp  = true;
+
+
 
 /*
  * Private variables
@@ -37,14 +44,13 @@ static osjob_t tbr_job;
 static osjob_t blink_job;
 static osjob_t display_job;
 static osjob_t send_tbr_buffer_job;
-static osjob_t PPS_warning;
+static osjob_t PPS_counter;
 
 // TBR
-static bool tbr_connected = false;
-static bool tbr_in_sync = false;
+
 static bool tbr_do_advance_sync = false;
 
-static bool send_slimData = true;
+//static bool send_slimData = true; OBSOLETE
 
 // GNSS
 static bool gnss_acquisition = false;
@@ -68,7 +74,7 @@ static void iof_update_display(osjob_t *j) {
 		display_put_string(2, 50, display_str_buf, font_medium);
 	}
 	else {
-		display_put_string(2, 50, "LoRa: Joining", font_medium);
+		display_put_string(2, 50, "LoRa: Disconnected", font_small);
 	}
 	display_draw_horisontal_whole_line(78);
 
@@ -146,25 +152,7 @@ static void poll_navdata( osjob_t *j ) {
 		//gnss_force_OFF(); do not turn off to use the 1PPS timer synchronization
 
 		// UNIX Time
-		if (first_time_stamp){ // get time stamp after initiating
-		    first_time_stamp = 0;
-		    iof_unix_ref = 1 + gnss_get_timeData(); // data is 1 second old
-		    iof_unix_ts = iof_unix_ref;
-		}
-		else{
-		    iof_unix_ts = 1 + gnss_get_timeData(); // data is 1 second old
-        if (iof_unix_ref>iof_unix_ts){// print time difference from initiating in unix time
-            sprintf(debug_str_buf,"time difference from first gps time stamp: %lu, where ref>ts\n", (iof_unix_ref-iof_unix_ts));
-            debug_str(debug_str_buf);
-        }else if (iof_unix_ts>iof_unix_ref){
-            sprintf(debug_str_buf,"time difference from first gps time stamp: %lu, where ts>ref\n", (iof_unix_ts-iof_unix_ref));
-            debug_str(debug_str_buf);
-        }else if (iof_unix_ts == iof_unix_ref){
-            sprintf(debug_str_buf,"time difference from first gps time stamp: %d, is zero!!\n", 0);
-            debug_str(debug_str_buf);
-        }
-
-		}
+		iof_unix_ts = 1 + gnss_get_timeData(); // data is 1 second old
 
 		tbr_do_advance_sync = true;
 
@@ -177,7 +165,7 @@ static void poll_navdata( osjob_t *j ) {
 		gnss_acquisition = false;
 	}
 	else if (retries >= 120) {
-		gnss_force_OFF();
+		//gnss_force_OFF();
 		debug_str("IOF: GNSS search timeout...\n");
 		retries = 0;
 		os_clearCallback(j);
@@ -195,8 +183,8 @@ static void poll_navdata( osjob_t *j ) {
 
 static void ping_tbr_rx_SN( osjob_t *j ) {
 	tbr_connected = tbr_ping_is_rx_SN();
-	if (tbr_connected) debug_str("IOF: TBR ping success\n");
-	else debug_str("IOF: TBR ping failed\n");
+	//if (tbr_connected) debug_str("IOF: TBR ping success\n");
+	//else  debug_str("IOF: TBR ping failed\n");
 }
 
 static void ping_tbr( osjob_t *j ) {
@@ -210,12 +198,14 @@ static void sync_tbr_basic_is_act(osjob_t * j){
   if (tbr_is_ack01()){
       tbr_in_sync = true;
       tbr_connected = true;
-      debug_str("IOF: basic time sync of TBR successed\n");
+      tbr_advance_sync_msg = true;
+      //debug_str("IOF: basic time sync of TBR successed\n");
   }
   else{
       tbr_in_sync = false; // todo rename flag to tbr_in_sync_basic??
       tbr_connected = false;
-      debug_str("IOF: basic time sync of TBR FAILED!\n");
+      tbr_basic_sync_msg = false;
+      //debug_str("IOF: basic time sync of TBR FAILED!\n");
   }
 
 }
@@ -328,25 +318,23 @@ void iof_app( osjob_t *j ) {
 	sprintf(debug_str_buf, "IOF APP: UNIX: %lu\n", iof_unix_ts);
 	debug_str(debug_str_buf);
 
+	/*
 	payload_t pl;
 	// build IOF frame
 	pl.length = iof_build_frame(pl.payload, send_slimData, tbr_in_sync);
 	send_slimData = false;
+	if (pl.length > 0) lpwan_queue_uplink(&pl, iof_frame_hasTagMsg()); LoRa removed
+	*/
 
-	if (pl.length > 0) lpwan_queue_uplink(&pl, iof_frame_hasTagMsg());
-
+	sendTBR_string();
+	sendGPS_data();
 	if (!tbr_connected) {
 		os_setCallback(&tbr_job, ping_tbr);
 	}
 }
 
-void send_tbr_buffer(osjob_t *j){
-//  if (!tbr_get_next_tbrMsg(&msg))
-//      debug_str("tbg msg buffer empty!\n");
-    parse_rs485_buffer();
-}
 
-void send_PPS_warning(osjob_t *j){ // todo rename function
+void debug_PPS_counter(osjob_t *j){
   sprintf(debug_str_buf, "one sec top ref: %lu\n", one_sec_top_ref);
   debug_str(debug_str_buf);
 }
@@ -362,13 +350,12 @@ void BURTC_IRQHandler(void) {
 		static uint16_t startup_time_min = 0;
 
 		iof_unix_ts++;
-		iof_unix_ref++;
 		ticks++; // 1 ticks = 1 second!
-		//sprintf(debug_str_buf, "Unix time: %lu\n", iof_unix_ref);
-		//debug_str(debug_str_buf);
+		sprintf(debug_str_buf, "Unix time: %lu\n", iof_unix_ts);
+		debug_str(debug_str_buf);
 
 
-		if (ticks % 60 == 0){
+		if (ticks % 60 == 0 && DEBUG_MODE){
 		    startup_time_min ++;
 		    sprintf(debug_str_buf, "Time since startup in minutes %d\n", startup_time_min);
 		    debug_str(debug_str_buf);
@@ -378,7 +365,7 @@ void BURTC_IRQHandler(void) {
 	       if(one_sec_top_ref>32000 && one_sec_top_ref<33000){
 	           BURTC_CompareSet(0,one_sec_top_ref);
 	       }
-         os_setCallback(&PPS_warning, send_PPS_warning);
+         //os_setCallback(&PPS_counter, debug_PPS_counter);
 
 		}
 		// sync tbr at next decasecond if new valid time data is available (tbr_do_advance_sync)
@@ -388,9 +375,7 @@ void BURTC_IRQHandler(void) {
       os_setCallback(&tbr_job, sync_tbr); // basic sync every 10 sec, advanced sync when new valid time data is available (from GPS)
     }
 
-		if(iof_unix_ts % 10 && tbr_do_advance_sync){
-		    os_setCallback(&tbr_job, sync_tbr);
-		}
+
 
 		// GNSS //
 		// restart nav data polling
@@ -398,7 +383,12 @@ void BURTC_IRQHandler(void) {
 		    //debug_str("nav data polling handler\n");
 		    os_setCallback(&gnss_job, poll_navdata);
 		}
-		if((iof_unix_ts % (ADVANCE_SYNCH_SECONDS - 5)) == 0 && ticks != 0){
+
+	  if(iof_unix_ts % 10 && tbr_do_advance_sync){ // sync tbr at next decasecond after unix time is polled
+	        os_setCallback(&tbr_job, sync_tbr);
+	    }
+
+		if((iof_unix_ts % (ADVANCE_SYNCH_SECONDS - 5)) == 0 && ticks != 0){ // restart BURTC timer 5 seconds before pulling new gps data.
 		    restart_timer_by_PPSPulse = true;
 		}
 
@@ -414,7 +404,7 @@ void BURTC_IRQHandler(void) {
 		    //debug_str("status LED handler (5sec)\n");
 
 		    os_setCallback(&app_job, iof_app);
-        os_setCallback(&send_tbr_buffer_job, send_tbr_buffer);
+        //os_setCallback(&send_tbr_buffer_job, send_tbr_buffer);
         os_setCallback(&blink_job, LEDs_set);
         os_setCallback(&display_job, iof_update_display);
 		}

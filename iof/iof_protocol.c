@@ -14,6 +14,8 @@ static bool frame_hasTagMsg = false;
 
 static uint32_t ref_ts = 0;
 
+
+
 /*
 	Private functions
 */
@@ -250,7 +252,7 @@ uint8_t iof_build_frame(uint8_t* frame, bool SLIMpacket, bool tbr_in_sync) {
 
 		add_IOFheader_to_frame(&frame[0], headerFlag);
 	}
-	return frame_len;
+	return frame_len; //run debug session to identify frame data format...
 }
 
 bool iof_frame_hasTagMsg( void ) {

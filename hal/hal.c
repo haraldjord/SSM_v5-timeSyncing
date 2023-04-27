@@ -11,6 +11,7 @@
 #include "../devices_header/led_and_switch.h"
 #include "em_emu.h"
 
+
 // HAL state
 static struct {
     int8_t irqlevel;
@@ -127,7 +128,6 @@ void GPIO_EVEN_IRQHandler() {
     GPIO_IntClear(int_mask);
 
     //if (int_mask & (1 << RADIO_IO_0)) radio_irq_handler(0);
-
     //if (int_mask & (1 << RADIO_IO_2)) radio_irq_handler(2);
 
     if (int_mask & (1 << GPS_TIME_PULSE)){
@@ -136,7 +136,11 @@ void GPIO_EVEN_IRQHandler() {
 
         if(restart_timer_by_PPSPulse){ // restart BURTC timer at PPS pulse to sync all devices.
             restart_timer_by_PPSPulse = false;
+            uint32_t t = BURTC_CounterGet();
+            sprintf(debug_str_buf, "BURTC timer: %lu", t);
+            debug_str(debug_str_buf);
             BURTC_CounterReset();
+
         }
 
         if(letimer_running){

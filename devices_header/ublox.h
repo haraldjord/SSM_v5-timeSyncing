@@ -40,6 +40,7 @@ typedef struct {
 typedef struct {
 	bool		valid_time;
 	bool		valid_pos;
+	bool    newData;
 
 	uint16_t	year;
 	uint8_t		month;

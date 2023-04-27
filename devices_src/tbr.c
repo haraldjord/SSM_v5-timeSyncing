@@ -12,11 +12,22 @@
 #include "../devices_header/tbr.h"
 
 /*
+ * shared variables
+ */
+extern uint8_t node_id;
+extern bool tbr_basic_sync_msg;
+extern bool tbr_advance_sync_msg;
+extern bool tbr_connected;
+extern bool tbr_in_sync;
+
+/*
  * private variables
  */
 static struct fifo_descriptor fifo_tbr_msgs_s;
 static fifo_t fifo_tbr_msgs = &fifo_tbr_msgs_s;
 static tbr_msg_t tbr_msgs[TBR_FIFO_LENGTH];
+static tbr_msg_t msg = {.codetype = 0};
+static uint8_t tagDetection_buf[1024];
 
 static uint16_t tbrSN = 0;
 static bool is_rx_SN = false;
@@ -87,8 +98,56 @@ static uint8_t resolve_tagCodetype(uint8_t tagProt, uint8_t tagFreq) {
 	return codetype;
 }
 
+static void parse_tbr_buf(void){ // prepare buffer to be sendt over rs-232
+  // add or remove data here:
+
+  /*// general data
+    bool newTagDetection;
+  uint8_t   codetype; // resolved from <tagProt> and <tagFreq>, or TBR_SENSOR_CODETYPE
+    uint16_t    tbrSN;
+    uint32_t    unix_ts;
+  uint32_t  memAddr;
+
+  // tag specific data
+    uint16_t    millisec;
+    uint8_t     tagProt;
+    uint32_t    tagID;
+    uint16_t    tagData;
+    uint8_t     SNR;
+  uint8_t   tagFreq;
+
+  // TBR sensor specific data
+    uint16_t    temperature;
+    uint8_t     avgNoise;
+    uint8_t     peakNoise;
+    uint8_t     noiseFreq;
+   */
+
+  //TAG msg format to be send: "$<tbrSN>,<unix_ts>,<millisec>,<tagProt>,<tagID>,<tagData>,<SNR>,<tagFreq>,<memAddr>\r"
+
+  if (tbr_connected && tbr_in_sync && tbr_basic_sync_msg && msg.newTagDetection){
+      tbr_basic_sync_msg = false;
+      sprintf(tagDetection_buf, "ID:%d, tbrSN: %d , timestamp: %lu,%u tagProt: %u, tagID:%lu, tagData:%u, SNR:%u, tagFreq:%u, memAddr:%lu, Info: Basic time sync successed!\n", node_id, msg.tbrSN, msg.unix_ts, msg.millisec, msg.tagProt, msg.tagID, msg.tagData, msg.SNR, msg.tagFreq, msg.memAddr);
+      debug_str(tagDetection_buf);
+  }else if (tbr_connected && tbr_in_sync && tbr_advance_sync_msg && msg.newTagDetection){
+      tbr_advance_sync_msg = false;
+      sprintf(tagDetection_buf, "ID:%d, tbrSN: %d , timestamp: %lu,%u tagProt: %u, tagID:%lu, tagData:%u, SNR:%u, tagFreq:%u, memAddr:%lu, Info: Advance time sync successed!\n", node_id, msg.tbrSN, msg.unix_ts, msg.millisec, msg.tagProt, msg.tagID, msg.tagData, msg.SNR, msg.tagFreq, msg.memAddr);
+      debug_str(tagDetection_buf);
+  } else if (msg.newTagDetection) {
+      sprintf(tagDetection_buf, "ID:%d, tbrSN: %d , timestamp: %lu,%u tagProt: %u, tagID:%lu, tagData:%u, SNR:%u, tagFreq:%u, memAddr:%lu, Info: []\n", node_id, msg.tbrSN, msg.unix_ts, msg.millisec, msg.tagProt, msg.tagID, msg.tagData, msg.SNR, msg.tagFreq, msg.memAddr);
+      debug_str(tagDetection_buf);
+  }
+
+
+
+
+  //sprintf(tagDetection_buf, "ID:%d, tbrSN: %d , timestamp: %lu,%u tagProt: %u, tagID:%lu, tagData:%u, SNR:%u, tagFreq:%u, memAddr:%lu\n", node_id, msg.tbrSN, msg.unix_ts, msg.millisec, msg.tagProt, msg.tagID, msg.tagData, msg.SNR, msg.tagFreq, msg.memAddr);
+  //debug_str(tagDetection_buf);
+
+}
+
 static void parse_tbr_msg(char* msg_str){
-	tbr_msg_t msg = {.codetype = 0};
+
 	char tagProt_str[16] = "TAG_PROTOCOL";
 	char msgProperty[9][16];
 	char endChar;
@@ -132,6 +191,8 @@ static void parse_tbr_msg(char* msg_str){
 			msg.SNR		= strtoul(msgProperty[6], NULL, 10);
 			msg.tagFreq	= strtoul(msgProperty[7], NULL, 10);
 			msg.memAddr	= strtoul(msgProperty[8], NULL, 10);
+
+			msg.newTagDetection = true;
 		}
 	}
 	/*
@@ -152,6 +213,8 @@ static void parse_tbr_msg(char* msg_str){
 			msg.SNR		= strtoul(msgProperty[6], NULL, 10);
 			msg.tagFreq	= strtoul(msgProperty[7], NULL, 10);
 			msg.memAddr	= strtoul(msgProperty[8], NULL, 10);
+
+			msg.newTagDetection = true;
 		}
 	}
 
@@ -185,6 +248,7 @@ static void parse_tbr_msg(char* msg_str){
 	fifo_add(fifo_tbr_msgs, &msg);
 	tbrSN = msg.tbrSN;
 }
+
 
 static void parse_tbr_SN(char* SN_str) {
 	if ( (strncmp(SN_str, "SN=", 3) == 0) && (strncmp(&SN_str[10], "><>", 3) == 0) ) {
@@ -226,15 +290,15 @@ void parse_rs485_buffer( void ) {
 		c = tbr_rx_buf[i];
 		switch (c)
 		{
-			case '$':
+			case '$': // New tag detection
 				parse_tbr_msg(&tbr_rx_buf[i]);
 				break;
 
-			case 'S':
+			case 'S': // acknowledge after ping
 				parse_tbr_SN(&tbr_rx_buf[i]);
 				break;
 
-			case 'a':
+			case 'a': // acknowledge of basic/advance sync
 				parse_tbr_ack(&tbr_rx_buf[i]);
 				break;
 		}
@@ -301,4 +365,24 @@ bool tbr_is_ack02( void ) {
 	else parse_rs485_buffer();
 
 	return ack02;
+}
+
+
+
+void sendTBR_string(void){
+
+  if (!tbr_connected){
+      sprintf(tagDetection_buf, "ID:%d Not connected to TBR!\n", node_id);
+      debug_str(tagDetection_buf);
+  }else if (tbr_connected && !tbr_in_sync){
+      sprintf(tagDetection_buf, "ID:%d no timesyncing\n!");
+      debug_str(tagDetection_buf);
+  }
+
+  while(tbr_get_next_tbrMsg(&msg));{
+      if (msg.newTagDetection == true){
+      parse_tbr_buf();
+      msg.newTagDetection = false;
+      }
+  }
 }

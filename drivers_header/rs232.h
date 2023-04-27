@@ -24,6 +24,7 @@
 #include "em_usart.h"
 #include "../FIFO/FIFO.h"
 
+
 #define 	RS232_BAUDRATE 		115200
 #define 	RS232_USART			USART0
 #define 	RS232_USART_CLK		cmuClock_USART0
