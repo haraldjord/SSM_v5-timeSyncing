@@ -236,9 +236,10 @@ static bool poll_nav_sat( void ) {
 
 static void parse_nav_pvt_payload(uint8_t *payload) {
 	// see p. 375 in u-blox M8 Receiver description - Manual
-
+  //debug_str("parse nav payload\n");
 	// if GNSSfixOK
 	if (payload[21] & 0x01) {
+	    debug_str("nav_ valid pos\n");
 		nav_data.valid_pos	= true;
 		nav_data.fix		= payload[20];
 		nav_data.longitude	= payload[24] | (payload[25] << 8) | (payload[26] << 16) | (payload[27] << 24);
@@ -247,6 +248,7 @@ static void parse_nav_pvt_payload(uint8_t *payload) {
 
 		// if time valid
 		if (payload[11] & 0x7) {
+		    debug_str("nav: valid time\n");
 			nav_data.valid_time	= true;
 			nav_data.year		= payload[4] | (payload[5] << 8);
 			nav_data.month		= payload[6];
@@ -286,12 +288,15 @@ static bool poll_nav_pvt( void ) {
 	// check if nav_pvt msg is recevied.
 	// The reception will probably not succeed first time poll_nav_pvt is called for a while.
 	// but removes delay_ds(1)
+  //debug_str("poll nav data\n");
 	rx_ubx_msgs();
 	ubx_msg_t msg;
 	while(fifo_get(fifo_ubx_msgs, &msg)) {
 		if (msg.ubx_class == NAV && msg.ubx_id == NAV_PVT) {
 			parse_nav_pvt_payload(msg.payload);
-			return true;
+			if (nav_data.newData == true){
+			    return true;
+			}
 		}
 	}
 
@@ -300,7 +305,7 @@ static bool poll_nav_pvt( void ) {
 
 	fletcher16(&cmd[2], 4, &cmd[6], &cmd[7]);
 	send_cmd_no_validation(cmd, sizeof(cmd));
-
+	delay_ms(50); // wait arbitrarly time before pulling again.
     return false;
 }
 
