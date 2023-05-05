@@ -149,10 +149,10 @@ void GPIO_EVEN_IRQHandler() {
 
         if(restart_timer_by_PPSPulse){ // restart BURTC timer at PPS pulse to sync all devices.
             restart_timer_by_PPSPulse = false;
-            debug_str("BURTC enabled\n");
             BURTC_CounterReset();
             BURTC_Enable(true);
             BURTC_restarted = true;
+            //debug_str("BURTC enabled\n");
 
         }
 
