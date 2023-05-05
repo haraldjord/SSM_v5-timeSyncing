@@ -125,15 +125,17 @@ static void parse_tbr_buf(void){ // prepare buffer to be sendt over rs-232
 
   //TAG msg format to be send: "$<tbrSN>,<unix_ts>,<millisec>,<tagProt>,<tagID>,<tagData>,<SNR>,<tagFreq>,<memAddr>\r"
 
-  if (tbr_connected && tbr_in_sync && tbr_basic_sync_msg && msg.newTagDetection){
+  if (tbr_connected && tbr_in_sync && tbr_advance_sync_msg && msg.newTagDetection){
+        tbr_advance_sync_msg = false;
+        sprintf(tagDetection_buf, "ID:%d, tbrSN: %d , timestamp: %lu,%u tagProt: %u, tagID:%lu, tagData:%u, SNR:%u, tagFreq:%u, memAddr:%lu, Info: Advance time sync successed!\n", node_id, msg.tbrSN, msg.unix_ts, msg.millisec, msg.tagProt, msg.tagID, msg.tagData, msg.SNR, msg.tagFreq, msg.memAddr);
+        debug_str(tagDetection_buf);
+  }
+  else if (tbr_connected && tbr_in_sync && tbr_basic_sync_msg && msg.newTagDetection){
       tbr_basic_sync_msg = false;
       sprintf(tagDetection_buf, "ID:%d, tbrSN: %d , timestamp: %lu,%u tagProt: %u, tagID:%lu, tagData:%u, SNR:%u, tagFreq:%u, memAddr:%lu, Info: Basic time sync successed!\n", node_id, msg.tbrSN, msg.unix_ts, msg.millisec, msg.tagProt, msg.tagID, msg.tagData, msg.SNR, msg.tagFreq, msg.memAddr);
       debug_str(tagDetection_buf);
-  }else if (tbr_connected && tbr_in_sync && tbr_advance_sync_msg && msg.newTagDetection){
-      tbr_advance_sync_msg = false;
-      sprintf(tagDetection_buf, "ID:%d, tbrSN: %d , timestamp: %lu,%u tagProt: %u, tagID:%lu, tagData:%u, SNR:%u, tagFreq:%u, memAddr:%lu, Info: Advance time sync successed!\n", node_id, msg.tbrSN, msg.unix_ts, msg.millisec, msg.tagProt, msg.tagID, msg.tagData, msg.SNR, msg.tagFreq, msg.memAddr);
-      debug_str(tagDetection_buf);
-  } else if (msg.newTagDetection) {
+  }
+  else if (msg.newTagDetection) {
       sprintf(tagDetection_buf, "ID:%d, tbrSN: %d , timestamp: %lu,%u tagProt: %u, tagID:%lu, tagData:%u, SNR:%u, tagFreq:%u, memAddr:%lu, Info: []\n", node_id, msg.tbrSN, msg.unix_ts, msg.millisec, msg.tagProt, msg.tagID, msg.tagData, msg.SNR, msg.tagFreq, msg.memAddr);
       debug_str(tagDetection_buf);
   }

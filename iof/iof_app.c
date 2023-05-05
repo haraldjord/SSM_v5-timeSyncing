@@ -12,8 +12,8 @@
 #define BURTC_TOP			((LFXO_FREQUENCY * WAKEUP_INTERVAL_SEC) - 1)
 
 #define   SYNC_PPS                10
-#define   BASIC_SYNCH_SECONDS     60
-#define   ADVANCE_SYNCH_SECONDS   300 // todo is this a good time interval?
+#define   BASIC_SYNCH_SECONDS     30
+#define   ADVANCE_SYNCH_SECONDS   120 // todo is this a good time interval?
 #define   DEBUG_MODE 1 // 1--> use rs232 for debug. 0--> use rs232 with radio only
 
 
@@ -70,13 +70,7 @@ static void iof_update_display(osjob_t *j) {
 	display_draw_horisontal_whole_line(46);
 
 	// LoRaWAN
-	if (lpwan_isJoined()) {
-		sprintf(display_str_buf, "LoRa: Joined\n SF%u TxPow: %u", lpwan_get_SF(), lpwan_get_txPow());
-		display_put_string(2, 50, display_str_buf, font_medium);
-	}
-	else {
-		display_put_string(2, 50, "LoRa: Disconnected", font_small);
-	}
+	display_put_string(2, 50, "LoRa: Disconnected", font_small);
 	display_draw_horisontal_whole_line(78);
 
 	// TBR
@@ -185,27 +179,51 @@ static void LEDs_set( osjob_t *j) {
 	}
 }*/
 
-static bool getout = false; // todo Delete
+
+//gnss_acquisition = true; // move before calling the function and update display
 static void poll_navdata( osjob_t *j ) {
-  static uint8_t retries = 0;
-  static uint32_t search_ts = 0;
-  if (retries == 0) {
-      BURTC_Enable(false); // stop BURTC timer to prevent race condition between BURTC and PPS signal.
-      search_ts = iof_unix_ts;
+    static bool first_pool = false;
+
+    BURTC_CounterReset();
+    BURTC_Enable(false); // stop BURTC timer to prevent race condition between BURTC and PPS signal.
+
     debug_str("IOF: GNSS starting search...\n");
-    gnss_force_ON();
     gnss_clearAll_ubxMsgs();
     gnss_clear_validData();
+    while(!gnss_poll_navdata()){      // poll nav data until valid timestamp and location is found
+    //delay_ms(100);                    // wait arbitrarly time before polling data again
+    }
 
-    gnss_acquisition = true;
-  }
+    iof_unix_ts = 1 + gnss_get_timeData(); // data is 1 second old
+    // POSITION
+    gnss_get_posData(&last_pos);
+    delay_ms(500);// wait 0.2 sec to prevent race condition between PPS signal
+    restart_timer_by_PPSPulse = true;
+    while(!is_BURTC_restarted());       // wait until BURTC is restarted by PPS signal
+    set_BURTC_restarted(false);
 
+
+    if (!first_pool){
+        // somehow the first pooling of gps has a delay before PPS signal is enable, solved by calling the function again on  a restarte og cold start.
+        first_pool = true;
+        os_setTimedCallback(j, os_getTime() + ms2osticks(1000), poll_navdata); // call 2 sec to prevent race condition
+    }
+    else{
+        gnss_acquisition = false;
+        tbr_do_advance_sync = true;
+    }
+
+
+    gnss_acquisition = false;
+    tbr_do_advance_sync = true;
   // if success OR more than 120 retries -> stop polling
   //if(is_BURTC_restarted() && getout == true){
-   if (is_BURTC_restarted()){
+
+
+    /*
+    if (is_BURTC_restarted()){
 
       set_BURTC_restarted(false);
-      getout = false;
       // UNIX Time
       debug_str("unix time ok!\n");
       iof_unix_ts = 1 + gnss_get_timeData(); // data is 1 second old
@@ -225,7 +243,71 @@ static void poll_navdata( osjob_t *j ) {
     //sprintf(debug_str_buf, "BURTC_restarted: %d \t getout: %d\n", is_BURTC_restarted(), getout);
     //debug_str(debug_str_buf);
     //gnss_force_OFF();
-    getout = true;
+    restart_timer_by_PPSPulse = true;
+
+    os_setTimedCallback(j, os_getTime() + ms2osticks(1300), poll_navdata); // call 2 sec to prevent race condition
+
+  }
+  else if (retries >= 120) {
+    gnss_force_OFF();
+    debug_str("IOF: GNSS search timeout...\n");
+    retries = 0;
+    os_clearCallback(j);
+
+    last_pos.fix = 0;
+    last_pos.numSV = 0;
+    gnss_acquisition = false;
+  }
+  // else continue polling
+  else {
+
+    retries++;
+    sprintf(debug_str_buf, "retries: %d\n", retries);
+    debug_str(debug_str_buf);
+    os_setTimedCallback(j, os_getTime() + sec2osticks(1), poll_navdata);
+
+  }*/
+}
+
+
+/*static void poll_navdata( osjob_t *j ) {
+  static uint8_t retries = 0;
+  static uint32_t search_ts = 0;
+  if (retries == 0) {
+      BURTC_Enable(false); // stop BURTC timer to prevent race condition between BURTC and PPS signal.
+      search_ts = iof_unix_ts;
+    debug_str("IOF: GNSS starting search...\n");
+    gnss_force_ON();
+    gnss_clearAll_ubxMsgs();
+    gnss_clear_validData();
+
+    gnss_acquisition = true;
+  }
+
+  // if success OR more than 120 retries -> stop polling
+  //if(is_BURTC_restarted() && getout == true){
+   if (is_BURTC_restarted()){
+
+      set_BURTC_restarted(false);
+      // UNIX Time
+      debug_str("unix time ok!\n");
+      iof_unix_ts = 1 + gnss_get_timeData(); // data is 1 second old
+      tbr_do_advance_sync = true;
+
+      // POSITION
+      gnss_get_posData(&last_pos);
+
+      gnss_acquisition = false;
+      retries = 0;
+      os_clearCallback(j);
+  }
+  else if (gnss_is_validPosData() && gnss_is_validTimeData()) {
+    sprintf(debug_str_buf, "IOF: GNSS fix acquired! Time to fix: %lu. Retries: %u\n", iof_unix_ts - search_ts, retries);
+    debug_str(debug_str_buf);
+
+    //sprintf(debug_str_buf, "BURTC_restarted: %d \t getout: %d\n", is_BURTC_restarted(), getout);
+    //debug_str(debug_str_buf);
+    //gnss_force_OFF();
     restart_timer_by_PPSPulse = true;
 
     os_setTimedCallback(j, os_getTime() + ms2osticks(1300), poll_navdata); // call 2 sec to prevent race condition
@@ -250,7 +332,7 @@ static void poll_navdata( osjob_t *j ) {
     os_setTimedCallback(j, os_getTime() + sec2osticks(1), poll_navdata);
 
   }
-}
+}*/
 
 static void ping_tbr_rx_SN( osjob_t *j ) {
 	tbr_connected = tbr_ping_is_rx_SN();
@@ -269,7 +351,7 @@ static void sync_tbr_basic_is_act(osjob_t * j){
   if (tbr_is_ack01()){
       tbr_in_sync = true;
       tbr_connected = true;
-      tbr_advance_sync_msg = true;
+      tbr_basic_sync_msg = true;
       //debug_str("IOF: basic time sync of TBR successed\n");
   }
   else{
@@ -285,10 +367,12 @@ static void sync_tbr_advance_is_ack( osjob_t *j ) {
 	if (tbr_is_ack02()) {
 		tbr_in_sync = true;
 		tbr_connected = true;
+    tbr_advance_sync_msg = true;
 		debug_str("IOF: Advanced time sync of TBR successed\n");
 	}
 	else {
 		tbr_in_sync = false;
+    tbr_advance_sync_msg = false;
 		debug_str("IOF: Advanced time sync of TBR FAILED!\n\n");
 	}
 }
@@ -371,6 +455,10 @@ void iof_app_init( osjob_t *j ) {
   // Init RTC interrupts
   time_manager_init();
 
+  // update display
+  gnss_acquisition = true;
+  os_setCallback(&display_job, iof_update_display);
+
 
 	// GNSS/GPS
 	gnss_init();
@@ -392,8 +480,8 @@ void iof_app_init( osjob_t *j ) {
 }
 
 void iof_app( osjob_t *j ) {
-	//sprintf(debug_str_buf, "IOF APP: UNIX: %lu\n", iof_unix_ts);
-	//debug_str(debug_str_buf);
+	sprintf(debug_str_buf, "IOF APP: UNIX: %lu\n", iof_unix_ts);
+	debug_str(debug_str_buf);
 
 	/*
 	payload_t pl;
@@ -428,10 +516,9 @@ void BURTC_IRQHandler(void) {
 
 		iof_unix_ts++;
 		ticks++; // 1 ticks = 1 second!
-		sprintf(debug_str_buf, "Unix time: %lu\n", iof_unix_ts);
-		debug_str(debug_str_buf);
+		//sprintf(debug_str_buf, "Unix time: %lu\n", iof_unix_ts);
+		//debug_str(debug_str_buf);
 
-		//if (!gnss_acquisition){ // do nothing when searcing for gps
 
       if (ticks % 60 == 0 && DEBUG_MODE){
           startup_time_min ++;
@@ -448,17 +535,19 @@ void BURTC_IRQHandler(void) {
       }
       // sync tbr at next decasecond if new valid time data is available (tbr_do_advance_sync)
       // TODO use iof_unix_ts to schedule syncing, to ensure that all tbr hydrophones are synced at the same time??
-      if ((iof_unix_ts % BASIC_SYNCH_SECONDS) == 0){
+      /*if ((iof_unix_ts % BASIC_SYNCH_SECONDS) == 0){
         //debug_str("tbr_do_sync handler\n");
         os_setCallback(&tbr_job, sync_tbr); // basic sync every 10 sec, advanced sync when new valid time data is available (from GPS)
-      }
+      }*/
 
 
 
       // GNSS //
       // restart nav data polling
-      if ((iof_unix_ts % ADVANCE_SYNCH_SECONDS) == 0 && ticks !=0) { // does it need new timestamp every 10 minute???
+      if (((iof_unix_ts -1)% (ADVANCE_SYNCH_SECONDS)) == 0 && ticks !=0) { // does it need new timestamp every 10 minute???
           //debug_str("nav data polling handler\n");
+          gnss_acquisition = true;
+          os_setCallback(&display_job, iof_update_display);
           os_setCallback(&gnss_job, poll_navdata);
       }
 

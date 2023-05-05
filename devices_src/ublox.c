@@ -239,7 +239,7 @@ static void parse_nav_pvt_payload(uint8_t *payload) {
   //debug_str("parse nav payload\n");
 	// if GNSSfixOK
 	if (payload[21] & 0x01) {
-	    debug_str("nav_ valid pos\n");
+	    debug_str("nav: valid pos\n");
 		nav_data.valid_pos	= true;
 		nav_data.fix		= payload[20];
 		nav_data.longitude	= payload[24] | (payload[25] << 8) | (payload[26] << 16) | (payload[27] << 24);
@@ -264,10 +264,18 @@ static void parse_nav_pvt_payload(uint8_t *payload) {
 	else {
 		nav_data.valid_pos	= false;
 	}
-	if(nav_data.valid_pos && nav_data.valid_time)
-	    nav_data.newData = true;
+	if(nav_data.valid_pos && nav_data.valid_time){
+	  nav_data.numSV    = payload[23];
+	  nav_data.newData = true;
+	  //sprintf(debug_str_buf, "fix: %1u, SV: %2u", nav_data.fix, nav_data.numSV);
+	  //debug_str(debug_str_buf);
+	}
+  else{
+	    nav_data.valid_pos = false;
+	    nav_data.valid_time = false;
+	  }
 
-	nav_data.numSV		= payload[23];
+
 }
 
 static void parse_nav_buf(void){
