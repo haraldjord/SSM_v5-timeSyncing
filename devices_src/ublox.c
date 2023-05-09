@@ -287,7 +287,7 @@ static void parse_nav_buf(void){
   uint8_t   fix;
   */
 
-  sprintf(nav_data_buf, "ID:%d longitude: %ld latitude: %ld\n", node_id, nav_data.longitude, nav_data.latitude);
+  sprintf(nav_data_buf, "ID:%d GPS , latitude: %ld, longitude: %ld \n",node_id, nav_data.latitude, nav_data.longitude);
   debug_str(nav_data_buf);
 }
 

@@ -19,6 +19,7 @@ static struct {
 } HAL;
 ////////////////////////////////////////////////
 /// pulse per second time synchronization
+/*
 #define N_SAMPLES   4
 #define BASE_2_N  16    //-1 done inside if...
 uint32_t  one_sec_top_ref=32768; // must be extern as its used in iof_app.c
@@ -29,8 +30,11 @@ static  int     last_letimer_count=65535;
 static  uint16_t  average_n=0;
 static  uint32_t  avergae_sum=0;
 static  uint32_t  ref_count=0;
-/////////////////////////////////////////////////
+*/
+////////////////////////////////////////////////
 
+// sheared variables
+extern bool gnss_acquisition;
 
 
 const bit_t lmic_pins;
@@ -121,7 +125,7 @@ void RTC_IRQHandler(void) {
 }
 
 extern void radio_irq_handler(u1_t dio);
-
+/*
 bool is_BURTC_restarted(void){
   if (BURTC_restarted == true) return true;
   else {return false;}
@@ -132,8 +136,9 @@ void set_BURTC_restarted(bool state){
   else{
       BURTC_restarted = false;
 }
-}
+}*/
 
+/*
 void GPIO_EVEN_IRQHandler() {
     //debug_str("\tEVEN IRQ\n");
     u4_t int_mask = GPIO_IntGetEnabled();
@@ -155,6 +160,15 @@ void GPIO_EVEN_IRQHandler() {
             //debug_str("BURTC enabled\n");
 
         }
+
+        if(!gnss_acquisition){ // GPS active
+
+
+
+        }
+
+
+
 
         if(letimer_running){
           LETIMER_Enable(LETIMER0,false);
@@ -184,7 +198,7 @@ void GPIO_EVEN_IRQHandler() {
 
     }
 
-}
+}*/
 
 
 void GPIO_ODD_IRQHandler() {        // par

@@ -12,9 +12,25 @@
 #define BURTC_TOP			((LFXO_FREQUENCY * WAKEUP_INTERVAL_SEC) - 1)
 
 #define   SYNC_PPS                10
-#define   BASIC_SYNCH_SECONDS     30
+#define   BASIC_SYNCH_SECONDS     10
 #define   ADVANCE_SYNCH_SECONDS   120 // todo is this a good time interval?
 #define   DEBUG_MODE 1 // 1--> use rs232 for debug. 0--> use rs232 with radio only
+
+
+////////////////////////////////////////////////
+/// pulse per second time synchronization
+#define N_SAMPLES   4
+#define BASE_2_N  16    //-1 done inside if...
+uint32_t  one_sec_top_ref=32768; // must be extern as its used in iof_app.c
+static  bool    letimer_running=false;
+bool     restart_timer_by_PPSPulse = false;
+bool BURTC_restarted = false;
+static  int     last_letimer_count=65535;
+static  uint16_t  average_n=0;
+static  uint32_t  avergae_sum=0;
+static  uint32_t  ref_count=0;
+/////////////////////////////////////////////////
+
 
 
 /*
@@ -23,8 +39,6 @@
 extern  uint32_t  one_sec_top_ref;
 extern bool restart_timer_by_PPSPulse;
 //extern BURTC_restarted;
-bool tbr_basic_sync_msg = false;
-bool tbr_advance_sync_msg = false;
 bool tbr_connected = false;
 bool tbr_in_sync = false;
 
@@ -54,7 +68,7 @@ static bool tbr_do_advance_sync = false;
 //static bool send_slimData = true; OBSOLETE
 
 // GNSS
-static bool gnss_acquisition = false;
+bool gnss_acquisition = false;
 
 static void iof_update_display(osjob_t *j) {
 	display_clear_main_area();
@@ -181,8 +195,9 @@ static void LEDs_set( osjob_t *j) {
 
 
 //gnss_acquisition = true; // move before calling the function and update display
+static bool first_pool = false;
 static void poll_navdata( osjob_t *j ) {
-    static bool first_pool = false;
+
 
     BURTC_CounterReset();
     BURTC_Enable(false); // stop BURTC timer to prevent race condition between BURTC and PPS signal.
@@ -199,12 +214,12 @@ static void poll_navdata( osjob_t *j ) {
     gnss_get_posData(&last_pos);
     delay_ms(500);// wait 0.2 sec to prevent race condition between PPS signal
     restart_timer_by_PPSPulse = true;
-    while(!is_BURTC_restarted());       // wait until BURTC is restarted by PPS signal
-    set_BURTC_restarted(false);
+    while(!BURTC_restarted);       // wait until BURTC is restarted by PPS signal
+       BURTC_restarted = false;     // todo rename variable
 
 
     if (!first_pool){
-        // somehow the first pooling of gps has a delay before PPS signal is enable, solved by calling the function again on  a restarte og cold start.
+        // somehow the first pooling of gps has a delay before PPS signal is enable, solved by calling the function again on a restart or cold start.
         first_pool = true;
         os_setTimedCallback(j, os_getTime() + ms2osticks(1000), poll_navdata); // call 2 sec to prevent race condition
     }
@@ -214,8 +229,8 @@ static void poll_navdata( osjob_t *j ) {
     }
 
 
-    gnss_acquisition = false;
-    tbr_do_advance_sync = true;
+    //gnss_acquisition = false;
+    //tbr_do_advance_sync = true;
   // if success OR more than 120 retries -> stop polling
   //if(is_BURTC_restarted() && getout == true){
 
@@ -351,14 +366,12 @@ static void sync_tbr_basic_is_act(osjob_t * j){
   if (tbr_is_ack01()){
       tbr_in_sync = true;
       tbr_connected = true;
-      tbr_basic_sync_msg = true;
       //debug_str("IOF: basic time sync of TBR successed\n");
   }
   else{
       tbr_in_sync = false; // todo rename flag to tbr_in_sync_basic??
       tbr_connected = false;
-      tbr_basic_sync_msg = false;
-      //debug_str("IOF: basic time sync of TBR FAILED!\n");
+      debug_str("IOF: basic time sync of TBR FAILED!\n");
   }
 
 }
@@ -367,12 +380,10 @@ static void sync_tbr_advance_is_ack( osjob_t *j ) {
 	if (tbr_is_ack02()) {
 		tbr_in_sync = true;
 		tbr_connected = true;
-    tbr_advance_sync_msg = true;
-		debug_str("IOF: Advanced time sync of TBR successed\n");
+		//debug_str("IOF: Advanced time sync of TBR successed\n");
 	}
 	else {
 		tbr_in_sync = false;
-    tbr_advance_sync_msg = false;
 		debug_str("IOF: Advanced time sync of TBR FAILED!\n\n");
 	}
 }
@@ -504,6 +515,94 @@ void debug_PPS_counter(osjob_t *j){
   debug_str(debug_str_buf);
 }
 
+
+
+
+
+void GPIO_EVEN_IRQHandler() {
+    //debug_str("\tEVEN IRQ\n");
+    u4_t int_mask = GPIO_IntGetEnabled();
+    int_mask &= ~(1UL << GPS_INT);   // TODO: hvordan bør en sørge for at bare even int blir cleared?
+    GPIO_IntClear(int_mask);
+
+    //if (int_mask & (1 << RADIO_IO_0)) radio_irq_handler(0);
+    //if (int_mask & (1 << RADIO_IO_2)) radio_irq_handler(2);
+
+    if (int_mask & (1 << GPS_TIME_PULSE)){
+        //debug_str("GPS TIME PULSE\n");
+        //status_led_gps_toggle();
+
+        if(restart_timer_by_PPSPulse){ // restart BURTC timer at PPS pulse to sync all devices.
+            restart_timer_by_PPSPulse = false;
+            BURTC_CounterReset();
+            BURTC_Enable(true);
+            BURTC_restarted = true;
+            //debug_str("BURTC enabled\n");
+
+        }
+
+        if(!gnss_acquisition){ // GPS active
+
+            iof_unix_ts++;
+
+            if ((iof_unix_ts % BASIC_SYNCH_SECONDS) == 0){
+                //debug_str("tbr_do_sync handler\n");
+                os_setCallback(&tbr_job, sync_tbr); // basic sync every 10 sec, advanced sync when new valid time data is available (from GPS)
+            }
+
+            if (((iof_unix_ts)% (ADVANCE_SYNCH_SECONDS)) == 0) { // does it need new timestamp every 10 minute???
+                gnss_acquisition = true;
+                os_setCallback(&display_job, iof_update_display);
+                os_setCallback(&gnss_job, poll_navdata);
+            }
+
+            if(iof_unix_ts % 5 == 0) {
+                os_setCallback(&app_job, iof_app);
+                os_setCallback(&blink_job, LEDs_set);
+                os_setCallback(&display_job, iof_update_display);
+              }
+
+        }
+
+
+
+
+        if(letimer_running){
+          LETIMER_Enable(LETIMER0,false);
+          //sprintf(debug_str_buf, "LETIMER0 counter: %ul\n", LETIMER_CounterGet(LETIMER0));
+          //debug_str(debug_str_buf);
+          if(LETIMER_CounterGet(LETIMER0)>last_letimer_count){
+            avergae_sum+=(uint32_t)(LETIMER_CounterGet(LETIMER0)-last_letimer_count);
+          }
+          else{
+            avergae_sum+=(uint32_t)(last_letimer_count-LETIMER_CounterGet(LETIMER0));
+          }
+          last_letimer_count=LETIMER_CounterGet(LETIMER0);
+          letimer_running=false;
+          average_n++;
+          if(average_n>BASE_2_N-1){
+            one_sec_top_ref=avergae_sum>>N_SAMPLES;
+            avergae_sum=0;
+            average_n=0;
+          }
+        }
+        else{
+          LETIMER_Enable(LETIMER0,true);
+          letimer_running=true;
+        }
+
+        ref_count++; // OBSOLETE??
+
+    }
+
+}
+
+
+
+
+
+
+
 void BURTC_IRQHandler(void) {
     //debug_str("Inside BURTC_IRQHandler\n");
 
@@ -514,7 +613,7 @@ void BURTC_IRQHandler(void) {
 		static uint16_t ticks = 0;
 		static uint16_t startup_time_min = 0;
 
-		iof_unix_ts++;
+		//iof_unix_ts++;
 		ticks++; // 1 ticks = 1 second!
 		//sprintf(debug_str_buf, "Unix time: %lu\n", iof_unix_ts);
 		//debug_str(debug_str_buf);
@@ -544,16 +643,18 @@ void BURTC_IRQHandler(void) {
 
       // GNSS //
       // restart nav data polling
-      if (((iof_unix_ts -1)% (ADVANCE_SYNCH_SECONDS)) == 0 && ticks !=0) { // does it need new timestamp every 10 minute???
+      /*
+      if (((iof_unix_ts)% (ADVANCE_SYNCH_SECONDS)) == 0 && ticks !=0) { // does it need new timestamp every 10 minute???
           //debug_str("nav data polling handler\n");
           gnss_acquisition = true;
           os_setCallback(&display_job, iof_update_display);
           os_setCallback(&gnss_job, poll_navdata);
-      }
+      }*/
 
+      /*
       if(iof_unix_ts % 10 && tbr_do_advance_sync){ // sync tbr at next decasecond after unix time is polled
             os_setCallback(&tbr_job, sync_tbr);
-        }
+        }/*
 
       /*if((iof_unix_ts % (ADVANCE_SYNCH_SECONDS - 5)) == 0 && ticks != 0){ // restart BURTC timer 5 seconds before pulling new gps data.
           restart_timer_by_PPSPulse = true;
@@ -567,6 +668,7 @@ void BURTC_IRQHandler(void) {
       }
 
       // Status LEDs and display
+      /*
       if(iof_unix_ts % 5 == 0) {
           //debug_str("status LED handler (5sec)\n");
 
@@ -575,6 +677,7 @@ void BURTC_IRQHandler(void) {
           os_setCallback(&blink_job, LEDs_set);
           os_setCallback(&display_job, iof_update_display);
       }
+      */
 
       if (ticks >= 720) {
           //debug_str("send slimData handler\n");
