@@ -2,8 +2,8 @@
 SLIM sofware adapted from Jon Andreas Kornberg.
 
 New features:
-- timesyncing 
-- rs232 radio module
+- Timesyncing 
+- RS-232 radio module
 
 Note that this repository does not prioritize battery saving.
 
