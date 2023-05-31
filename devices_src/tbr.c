@@ -26,8 +26,8 @@ static struct fifo_descriptor fifo_tbr_msgs_s;
 static fifo_t fifo_tbr_msgs = &fifo_tbr_msgs_s;
 static tbr_msg_t tbr_msgs[TBR_FIFO_LENGTH];
 static tbr_msg_t msg = {.codetype = 0};
-static uint8_t tagDetection_buf[1024];
-
+//static uint8_t tagDetection_buf[1024];
+char tagDetection_buf[256];
 static uint16_t tbrSN = 0;
 static bool is_rx_SN = false;
 static bool ack01 = false;
@@ -125,7 +125,7 @@ static void parse_tbr_buf(void){ // prepare buffer to be sendt over rs-232
   //TAG msg format to be send: "$<tbrSN>,<unix_ts>,<millisec>,<tagProt>,<tagID>,<tagData>,<SNR>,<tagFreq>,<memAddr>\r"
 
 
-    sprintf(tagDetection_buf, "ID:%d, TBR, tbrSN: %d , timestamp: %lu.%u , tagElement tagProt: %u, tagID:%lu, tagData:%u, SNR:%u, tagFreq:%u, memAddr:%lu\n", node_id, msg.tbrSN, msg.unix_ts, msg.millisec, msg.tagProt, msg.tagID, msg.tagData, msg.SNR, msg.tagFreq, msg.memAddr);
+    sprintf(tagDetection_buf, "ID:%d, TBR, tbrSN: %d , timestamp: %lu.%u , tagProt: %u, tagID:%lu, tagData:%u, SNR:%u, tagFreq:%u, memAddr:%lu\n", node_id, msg.tbrSN, msg.unix_ts, msg.millisec, msg.tagProt, msg.tagID, msg.tagData, msg.SNR, msg.tagFreq, msg.memAddr);
     debug_str(tagDetection_buf);
 
 
@@ -363,10 +363,10 @@ bool tbr_is_ack02( void ) {
 void sendTBR_string(void){
 
   if (!tbr_connected){
-      sprintf(tagDetection_buf, "ID:%d Not connected to TBR!\n", node_id);
+      sprintf(tagDetection_buf, "ID: %d warning: not connected to tbr!\n", node_id);
       debug_str(tagDetection_buf);
   }else if (tbr_connected && !tbr_in_sync){
-      sprintf(tagDetection_buf, "ID:%d no timesyncing\n!");
+      sprintf(tagDetection_buf, "ID: %d warning: no timesyncing!\n", node_id);
       debug_str(tagDetection_buf);
   }
 

@@ -3,6 +3,8 @@
  *
  *  Created on: 10. feb. 2022
  *      Author: Jon Andreas Kornberg
+ *  Edited: Spring 2023
+ *      Author Harald Jordalen
  */
 
 #include "iof_app.h"
@@ -14,7 +16,7 @@
 #define   SYNC_PPS                10
 #define   BASIC_SYNCH_SECONDS     10
 #define   ADVANCE_SYNCH_SECONDS   120 // todo is this a good time interval?
-#define   DEBUG_MODE 1 // 1--> use rs232 for debug. 0--> use rs232 with radio only
+
 
 
 ////////////////////////////////////////////////
@@ -29,7 +31,8 @@ static  int     last_letimer_count=65535;
 static  uint16_t  average_n=0;
 static  uint32_t  avergae_sum=0;
 static  uint32_t  ref_count=0;
-/////////////////////////////////////////////////
+
+//////////////////////////////////////////////////
 
 
 
@@ -209,19 +212,20 @@ static void poll_navdata( osjob_t *j ) {
     //delay_ms(100);                    // wait arbitrarly time before polling data again
     }
 
-    iof_unix_ts = 1 + gnss_get_timeData(); // data is 1 second old
+    iof_unix_ts = gnss_get_timeData(); // data is 1 second old
     // POSITION
     gnss_get_posData(&last_pos);
+    /*
     delay_ms(500);// wait 0.2 sec to prevent race condition between PPS signal
     restart_timer_by_PPSPulse = true;
     while(!BURTC_restarted);       // wait until BURTC is restarted by PPS signal
        BURTC_restarted = false;     // todo rename variable
 
-
+     */
     if (!first_pool){
-        // somehow the first pooling of gps has a delay before PPS signal is enable, solved by calling the function again on a restart or cold start.
+        // somehow the first pooling of gps has a delay before PPS signal is enable, solved by calling the function again on restart or cold start.
         first_pool = true;
-        os_setTimedCallback(j, os_getTime() + ms2osticks(1000), poll_navdata); // call 2 sec to prevent race condition
+        os_setTimedCallback(j, os_getTime() + sec2osticks(5), poll_navdata); // call 2 sec to prevent race condition
     }
     else{
         gnss_acquisition = false;
@@ -441,7 +445,7 @@ static void time_manager_init( void ) {
   LETIMER_Init(LETIMER0,&letimer_init);
 
   // Start BURTC
-    BURTC_Enable(false);
+    BURTC_Enable(false); // BURTC not beeing used
 }
 
 void iof_app_init( osjob_t *j ) {
@@ -491,7 +495,7 @@ void iof_app_init( osjob_t *j ) {
 }
 
 void iof_app( osjob_t *j ) {
-	sprintf(debug_str_buf, "IOF APP: UNIX: %lu\n", iof_unix_ts);
+	sprintf(debug_str_buf, "ID: %d , UNIX: %lu\n",node_id, (iof_unix_ts));
 	debug_str(debug_str_buf);
 
 	/*
@@ -532,6 +536,7 @@ void GPIO_EVEN_IRQHandler() {
         //debug_str("GPS TIME PULSE\n");
         //status_led_gps_toggle();
 
+        /*
         if(restart_timer_by_PPSPulse){ // restart BURTC timer at PPS pulse to sync all devices.
             restart_timer_by_PPSPulse = false;
             BURTC_CounterReset();
@@ -539,7 +544,7 @@ void GPIO_EVEN_IRQHandler() {
             BURTC_restarted = true;
             //debug_str("BURTC enabled\n");
 
-        }
+        }*/
 
         if(!gnss_acquisition){ // GPS active
 
@@ -556,7 +561,7 @@ void GPIO_EVEN_IRQHandler() {
                 os_setCallback(&gnss_job, poll_navdata);
             }
 
-            if(iof_unix_ts % 5 == 0) {
+            if((iof_unix_ts- node_id) % 5 == 0) {
                 os_setCallback(&app_job, iof_app);
                 os_setCallback(&blink_job, LEDs_set);
                 os_setCallback(&display_job, iof_update_display);
@@ -566,7 +571,7 @@ void GPIO_EVEN_IRQHandler() {
 
 
 
-
+        /*
         if(letimer_running){
           LETIMER_Enable(LETIMER0,false);
           //sprintf(debug_str_buf, "LETIMER0 counter: %ul\n", LETIMER_CounterGet(LETIMER0));
@@ -589,9 +594,9 @@ void GPIO_EVEN_IRQHandler() {
         else{
           LETIMER_Enable(LETIMER0,true);
           letimer_running=true;
-        }
+        }*/
 
-        ref_count++; // OBSOLETE??
+        //ref_count++; // OBSOLETE??
 
     }
 
@@ -605,7 +610,7 @@ void GPIO_EVEN_IRQHandler() {
 
 void BURTC_IRQHandler(void) {
     //debug_str("Inside BURTC_IRQHandler\n");
-
+  /*
     uint32_t int_mask = BURTC_IntGet();
 	  BURTC_IntClear(int_mask);
 
@@ -662,11 +667,12 @@ void BURTC_IRQHandler(void) {
 
       // IOF APPLICATION //
       // schedule app once 4 minutes
-      if (ticks % 240 == 0) {
+  /*
+  if (ticks % 240 == 0) {
           //debug_str("schedule app after 4 minutes\n");
           //os_setCallback(&app_job, iof_app);
       }
-
+*/
       // Status LEDs and display
       /*
       if(iof_unix_ts % 5 == 0) {
@@ -679,6 +685,7 @@ void BURTC_IRQHandler(void) {
       }
       */
 
+      /*
       if (ticks >= 720) {
           //debug_str("send slimData handler\n");
         //send_slimData = true;
@@ -686,5 +693,5 @@ void BURTC_IRQHandler(void) {
       }
 		//}
         //WDOG_Feed();
-    }
+    }*/
 }
