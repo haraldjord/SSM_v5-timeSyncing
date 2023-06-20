@@ -14,9 +14,13 @@
 #include "../devices_header/analog.h"
 #include "iof_protocol.h"
 #include "../devices_header/display.h"
+#include "em_letimer.h"
 
 #include "em_burtc.h"
 
 void iof_app_init( osjob_t *j );
+
+void sendData_radio(uint8_t *frame, uint8_t len);
+
 
 #endif /* IOF_IOF_APP_H_ */
