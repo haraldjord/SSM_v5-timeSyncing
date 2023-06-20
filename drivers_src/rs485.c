@@ -6,6 +6,8 @@
  * 
  * 	Edited on: Spring 2022
  * 		Author: Jon Andreas Kornberg
+ *  Edited: Spring 2023
+ *      Author: Harald Jordalen
  */
 
 #include "../drivers_header/rs485.h"

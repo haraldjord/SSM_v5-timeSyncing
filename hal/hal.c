@@ -3,6 +3,9 @@
  * Previous Contributers:
  *  - Waseemh
  *  - MaruisSR
+ *
+ *  Edited spring 2023
+ *  Author: Harald Jordalen
  *******************************************************************************/
 #include "../lmic/hal.h"
 #include "debug.h"
@@ -17,24 +20,6 @@ static struct {
     int8_t irqlevel;
     uint64_t ticks;
 } HAL;
-////////////////////////////////////////////////
-/// pulse per second time synchronization
-/*
-#define N_SAMPLES   4
-#define BASE_2_N  16    //-1 done inside if...
-uint32_t  one_sec_top_ref=32768; // must be extern as its used in iof_app.c
-static  bool    letimer_running=false;
-bool     restart_timer_by_PPSPulse = false;
-bool BURTC_restarted = false;
-static  int     last_letimer_count=65535;
-static  uint16_t  average_n=0;
-static  uint32_t  avergae_sum=0;
-static  uint32_t  ref_count=0;
-*/
-////////////////////////////////////////////////
-
-// sheared variables
-extern bool gnss_acquisition;
 
 
 
@@ -126,80 +111,7 @@ void RTC_IRQHandler(void) {
 }
 
 extern void radio_irq_handler(u1_t dio);
-/*
-bool is_BURTC_restarted(void){
-  if (BURTC_restarted == true) return true;
-  else {return false;}
-}
 
-void set_BURTC_restarted(bool state){
-  if (state == true) BURTC_restarted = true;
-  else{
-      BURTC_restarted = false;
-}
-}*/
-
-/*
-void GPIO_EVEN_IRQHandler() {
-    //debug_str("\tEVEN IRQ\n");
-    u4_t int_mask = GPIO_IntGetEnabled();
-    int_mask &= ~(1UL << GPS_INT);   // TODO: hvordan bør en sørge for at bare even int blir cleared?
-    GPIO_IntClear(int_mask);
-
-    //if (int_mask & (1 << RADIO_IO_0)) radio_irq_handler(0);
-    //if (int_mask & (1 << RADIO_IO_2)) radio_irq_handler(2);
-
-    if (int_mask & (1 << GPS_TIME_PULSE)){
-        //debug_str("GPS TIME PULSE\n");
-        //status_led_gps_toggle();
-
-        if(restart_timer_by_PPSPulse){ // restart BURTC timer at PPS pulse to sync all devices.
-            restart_timer_by_PPSPulse = false;
-            BURTC_CounterReset();
-            BURTC_Enable(true);
-            BURTC_restarted = true;
-            //debug_str("BURTC enabled\n");
-
-        }
-
-        if(!gnss_acquisition){ // GPS active
-
-
-
-        }
-
-
-
-
-        if(letimer_running){
-          LETIMER_Enable(LETIMER0,false);
-          //sprintf(debug_str_buf, "LETIMER0 counter: %ul\n", LETIMER_CounterGet(LETIMER0));
-          //debug_str(debug_str_buf);
-          if(LETIMER_CounterGet(LETIMER0)>last_letimer_count){
-            avergae_sum+=(uint32_t)(LETIMER_CounterGet(LETIMER0)-last_letimer_count);
-          }
-          else{
-            avergae_sum+=(uint32_t)(last_letimer_count-LETIMER_CounterGet(LETIMER0));
-          }
-          last_letimer_count=LETIMER_CounterGet(LETIMER0);
-          letimer_running=false;
-          average_n++;
-          if(average_n>BASE_2_N-1){
-            one_sec_top_ref=avergae_sum>>N_SAMPLES;
-            avergae_sum=0;
-            average_n=0;
-          }
-        }
-        else{
-          LETIMER_Enable(LETIMER0,true);
-          letimer_running=true;
-        }
-
-        ref_count++; // OBSOLETE??
-
-    }
-
-}*/
 
 
 void GPIO_ODD_IRQHandler() {        // par

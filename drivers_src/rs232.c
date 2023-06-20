@@ -6,6 +6,8 @@
  *
  * 	Edited on: Spring 2022
  * 		Author: Jon Andreas Kornberg
+ *  Edited: Spring 2023
+ *      Author: Harald Jordalen
  */
 
 #include "../drivers_header/rs232.h"
@@ -153,18 +155,6 @@ void parse_rs232_buffer(void){
 }
 
 
-/*
-void parse_rs232_command(char * msg_str){
-/*
- * check for commands sent to the slim from host computer
- * todo if more commands are implemented, make typdef struct with dedicated commands.
- */
-
-   //debug_str(msg_str);
-   /*if (strcmp(msg_str, "#get_GPS_Pos\n") == 0) {
-       update_GPS = true;
-   }
-}*/
 
 void parse_rs232_command(char * msg_str){
     /*

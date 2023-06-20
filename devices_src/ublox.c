@@ -7,6 +7,9 @@
  * 
  * 	Edited: Spring 2022
  * 		Author: Jon Andreas Kornberg
+ *
+ *  Edited: Spring 2023
+ *      Author: Harald Jordalen
  */
 
 #include "../devices_header/ublox.h"
@@ -338,7 +341,6 @@ static bool poll_nav_status(nav_status_data_t *status_data) {
 
 	// check if nav_status msg is recevied.
 	// The reception will probably not succeed first time poll_nav_status is called for a while.
-	// but removes delay_ds(1)
 	rx_ubx_msgs();
 	ubx_msg_t msg;
 	while(fifo_get(fifo_ubx_msgs, &msg)) {
@@ -347,7 +349,7 @@ static bool poll_nav_status(nav_status_data_t *status_data) {
 		}
 	}
 
-    uint8_t cmd[8];
+  uint8_t cmd[8];
 	memcpy(cmd, UBX_NAV_STATUS, 8);
 
 	fletcher16(&cmd[2], 4, &cmd[6], &cmd[7]);

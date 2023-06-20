@@ -6,6 +6,9 @@
  * 
  *  Edited: Spring 2022
  *      Author: Jon Andreas Kornberg
+ *
+ *  Edited: Spring 2023
+ *      Author: Harald Jordalen
  */
 
 
@@ -97,15 +100,15 @@ static uint8_t resolve_tagCodetype(uint8_t tagProt, uint8_t tagFreq) {
 	return codetype;
 }
 
-static void parse_tbr_buf(void){ // prepare buffer to be sendt over rs-232
+static void parse_tbr_buf(void){ // prepare buffer to be sendt over RS-232
   // add or remove data here:
 
   /*// general data
     bool newTagDetection;
-  uint8_t   codetype; // resolved from <tagProt> and <tagFreq>, or TBR_SENSOR_CODETYPE
+    uint8_t   codetype; // resolved from <tagProt> and <tagFreq>, or TBR_SENSOR_CODETYPE
     uint16_t    tbrSN;
     uint32_t    unix_ts;
-  uint32_t  memAddr;
+    uint32_t  memAddr;
 
   // tag specific data
     uint16_t    millisec;
@@ -113,7 +116,7 @@ static void parse_tbr_buf(void){ // prepare buffer to be sendt over rs-232
     uint32_t    tagID;
     uint16_t    tagData;
     uint8_t     SNR;
-  uint8_t   tagFreq;
+    uint8_t   tagFreq;
 
   // TBR sensor specific data
     uint16_t    temperature;
@@ -122,18 +125,11 @@ static void parse_tbr_buf(void){ // prepare buffer to be sendt over rs-232
     uint8_t     noiseFreq;
    */
 
-  //TAG msg format to be send: "$<tbrSN>,<unix_ts>,<millisec>,<tagProt>,<tagID>,<tagData>,<SNR>,<tagFreq>,<memAddr>\r"
+  //Tag msg format to be send: "$<tbrSN>,<unix_ts>,<millisec>,<tagProt>,<tagID>,<tagData>,<SNR>,<tagFreq>,<memAddr>\r"
 
+  sprintf(tagDetection_buf, "ID:%d, TBR, tbrSN: %d , timestamp: %lu.%u , tagProt: %u, tagID:%lu, tagData:%u, SNR:%u, tagFreq:%u, memAddr:%lu\n", node_id, msg.tbrSN, msg.unix_ts, msg.millisec, msg.tagProt, msg.tagID, msg.tagData, msg.SNR, msg.tagFreq, msg.memAddr);
+  debug_str(tagDetection_buf);
 
-    sprintf(tagDetection_buf, "ID:%d, TBR, tbrSN: %d , timestamp: %lu.%u , tagProt: %u, tagID:%lu, tagData:%u, SNR:%u, tagFreq:%u, memAddr:%lu\n", node_id, msg.tbrSN, msg.unix_ts, msg.millisec, msg.tagProt, msg.tagID, msg.tagData, msg.SNR, msg.tagFreq, msg.memAddr);
-    debug_str(tagDetection_buf);
-
-
-
-
-
-  //sprintf(tagDetection_buf, "ID:%d, tbrSN: %d , timestamp: %lu,%u tagProt: %u, tagID:%lu, tagData:%u, SNR:%u, tagFreq:%u, memAddr:%lu\n", node_id, msg.tbrSN, msg.unix_ts, msg.millisec, msg.tagProt, msg.tagID, msg.tagData, msg.SNR, msg.tagFreq, msg.memAddr);
-  //debug_str(tagDetection_buf);
 
 }
 
