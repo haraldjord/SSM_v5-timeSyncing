@@ -7,10 +7,18 @@
  * 
  * 	Edited: Spring 2022
  * 		Author: Jon Andreas Kornberg
+ *
+ *  Edited: Spring 2023
+ *      Author: Harald Jordalen
  */
 
 #include "../devices_header/ublox.h"
 #include "../devices_header/ublox_msg.h"
+
+/*
+ * public variables
+ */
+extern uint8_t node_id;
 
 /*
  * private variables
@@ -20,7 +28,8 @@ static struct fifo_descriptor fifo_ubx_msgs_s;
 static fifo_t fifo_ubx_msgs = &fifo_ubx_msgs_s;
 
 static sat_data_t sat_data = {0,0};
-static nav_data_t nav_data = {.valid_time = false, .valid_pos = false, .fix = 0, .numSV = 0};
+static nav_data_t nav_data = {.valid_time = false, .newData = false, .valid_pos = false, .fix = 0, .numSV = 0};
+static uint8_t nav_data_buf[1024]; // buffer to transmit over rs232
 /*
  * private functions
  */
@@ -41,7 +50,7 @@ static void rx_ubx_msgs( void ) {
 		if (c != SYNCH_2) break;
 
 		ubx_msg_t msg;
-		msg.ubx_class 	= spi_read_byte();
+		msg.ubx_class 	= spi_read_byte(); // class = 1
 		msg.ubx_id 		= spi_read_byte();
 
 		msg.length		= spi_read_byte();
@@ -230,9 +239,10 @@ static bool poll_nav_sat( void ) {
 
 static void parse_nav_pvt_payload(uint8_t *payload) {
 	// see p. 375 in u-blox M8 Receiver description - Manual
-
+  //debug_str("parse nav payload\n");
 	// if GNSSfixOK
 	if (payload[21] & 0x01) {
+	    debug_str("nav: valid pos\n");
 		nav_data.valid_pos	= true;
 		nav_data.fix		= payload[20];
 		nav_data.longitude	= payload[24] | (payload[25] << 8) | (payload[26] << 16) | (payload[27] << 24);
@@ -241,6 +251,7 @@ static void parse_nav_pvt_payload(uint8_t *payload) {
 
 		// if time valid
 		if (payload[11] & 0x7) {
+		    debug_str("nav: valid time\n");
 			nav_data.valid_time	= true;
 			nav_data.year		= payload[4] | (payload[5] << 8);
 			nav_data.month		= payload[6];
@@ -256,8 +267,31 @@ static void parse_nav_pvt_payload(uint8_t *payload) {
 	else {
 		nav_data.valid_pos	= false;
 	}
+	if(nav_data.valid_pos && nav_data.valid_time){
+	  nav_data.numSV    = payload[23];
+	  nav_data.newData = true;
+	  //sprintf(debug_str_buf, "fix: %1u, SV: %2u", nav_data.fix, nav_data.numSV);
+	  //debug_str(debug_str_buf);
+	}
+  else{
+	    nav_data.valid_pos = false;
+	    nav_data.valid_time = false;
+	  }
 
-	nav_data.numSV		= payload[23];
+
+}
+
+static void parse_nav_buf(void){
+  // add data from gps to buffer before sending over rs-232 here:
+  /*uint8_t   numSV;
+  int32_t   longitude;
+  int32_t   latitude;
+  uint16_t  pDOP;
+  uint8_t   fix;
+  */
+
+  sprintf(nav_data_buf, "ID:%d GPS , latitude: %ld, longitude: %ld \n",node_id, nav_data.latitude, nav_data.longitude);
+  debug_str(nav_data_buf);
 }
 
 static bool poll_nav_pvt( void ) {
@@ -265,12 +299,15 @@ static bool poll_nav_pvt( void ) {
 	// check if nav_pvt msg is recevied.
 	// The reception will probably not succeed first time poll_nav_pvt is called for a while.
 	// but removes delay_ds(1)
+  //debug_str("poll nav data\n");
 	rx_ubx_msgs();
 	ubx_msg_t msg;
 	while(fifo_get(fifo_ubx_msgs, &msg)) {
 		if (msg.ubx_class == NAV && msg.ubx_id == NAV_PVT) {
 			parse_nav_pvt_payload(msg.payload);
-			return true;
+			if (nav_data.newData == true){
+			    return true;
+			}
 		}
 	}
 
@@ -279,7 +316,7 @@ static bool poll_nav_pvt( void ) {
 
 	fletcher16(&cmd[2], 4, &cmd[6], &cmd[7]);
 	send_cmd_no_validation(cmd, sizeof(cmd));
-
+	delay_ms(50); // wait arbitrarly time before pulling again.
     return false;
 }
 
@@ -304,7 +341,6 @@ static bool poll_nav_status(nav_status_data_t *status_data) {
 
 	// check if nav_status msg is recevied.
 	// The reception will probably not succeed first time poll_nav_status is called for a while.
-	// but removes delay_ds(1)
 	rx_ubx_msgs();
 	ubx_msg_t msg;
 	while(fifo_get(fifo_ubx_msgs, &msg)) {
@@ -313,7 +349,7 @@ static bool poll_nav_status(nav_status_data_t *status_data) {
 		}
 	}
 
-    uint8_t cmd[8];
+  uint8_t cmd[8];
 	memcpy(cmd, UBX_NAV_STATUS, 8);
 
 	fletcher16(&cmd[2], 4, &cmd[6], &cmd[7]);
@@ -400,4 +436,11 @@ void gnss_force_ON( void ) {
 void gnss_force_OFF( void ) {
 	debug_str("GNSS: Force OFF\n");
 	GPIO_PinOutClear(GPS_SIG_PORT, GPS_INT);
+}
+
+void sendGPS_data(void){ // send data over rs232 radio
+  if (nav_data.newData == true){
+      parse_nav_buf();
+      nav_data.newData = false;
+  }
 }

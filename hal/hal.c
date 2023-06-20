@@ -3,6 +3,9 @@
  * Previous Contributers:
  *  - Waseemh
  *  - MaruisSR
+ *
+ *  Edited spring 2023
+ *  Author: Harald Jordalen
  *******************************************************************************/
 #include "../lmic/hal.h"
 #include "debug.h"
@@ -11,11 +14,14 @@
 #include "../devices_header/led_and_switch.h"
 #include "em_emu.h"
 
+
 // HAL state
 static struct {
     int8_t irqlevel;
     uint64_t ticks;
 } HAL;
+
+
 
 const bit_t lmic_pins;
 //////////////////////// STATIC FUNCTIONS ////////////////////////////
@@ -106,19 +112,6 @@ void RTC_IRQHandler(void) {
 
 extern void radio_irq_handler(u1_t dio);
 
-void GPIO_EVEN_IRQHandler() {
-    debug_str("\tEVEN IRQ\n");
-    u4_t int_mask = GPIO_IntGetEnabled();
-    int_mask &= ~(1UL << GPS_INT);   // TODO: hvordan bør en sørge for at bare even int blir cleared?
-    GPIO_IntClear(int_mask);
-
-    if (int_mask & (1 << RADIO_IO_0)) radio_irq_handler(0);
-
-    if (int_mask & (1 << RADIO_IO_2)) radio_irq_handler(2);
-
-    if (int_mask & (1 << GPS_TIME_PULSE)) status_led_gps_toggle();
-
-}
 
 
 void GPIO_ODD_IRQHandler() {        // par
