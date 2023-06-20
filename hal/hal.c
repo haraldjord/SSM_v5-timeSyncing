@@ -37,6 +37,7 @@ static  uint32_t  ref_count=0;
 extern bool gnss_acquisition;
 
 
+
 const bit_t lmic_pins;
 //////////////////////// STATIC FUNCTIONS ////////////////////////////
 

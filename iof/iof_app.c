@@ -45,6 +45,8 @@ extern bool restart_timer_by_PPSPulse;
 bool tbr_connected = false;
 bool tbr_in_sync = false;
 
+bool update_GPS = false;
+bool get_UNIX_time = false;
 
 osjob_t app_job;
 uint8_t node_id = 0xFF;
@@ -61,6 +63,8 @@ static osjob_t gnss_job;
 static osjob_t tbr_job;
 static osjob_t blink_job;
 static osjob_t display_job;
+static osjob_t rs232_rx_job;
+
 static osjob_t send_tbr_buffer_job;
 static osjob_t PPS_counter;
 
@@ -352,6 +356,10 @@ static void poll_navdata( osjob_t *j ) {
 
   }
 }*/
+static parse_rs232(osjob_t *j){
+  parse_rs232_buffer();
+}
+
 
 static void ping_tbr_rx_SN( osjob_t *j ) {
 	tbr_connected = tbr_ping_is_rx_SN();
@@ -482,22 +490,19 @@ void iof_app_init( osjob_t *j ) {
 	// Analog inteface to read battery or temperature
 	analog_init();
 
-
-
 	// LoRaWAN
 	//lpwan_init(); //LoRa radio not beeing used.
-
-	// Sync TBR after getting unix timestamp from gps
-	//os_setCallback(&tbr_job, sync_tbr); does not work, basic sync is happening....
 
 	// Init complete. Turn off status LED
 	set_status_led(false, false);
 }
 
 void iof_app( osjob_t *j ) {
-	sprintf(debug_str_buf, "ID: %d , UNIX: %lu\n",node_id, (iof_unix_ts));
-	debug_str(debug_str_buf);
-
+	if (get_UNIX_time){
+      get_UNIX_time = false;
+      sprintf(debug_str_buf, "ID: %d , UNIX: %lu\n",node_id, (iof_unix_ts));
+      debug_str(debug_str_buf);
+	}
 	/*
 	payload_t pl;
 	// build IOF frame
@@ -514,10 +519,10 @@ void iof_app( osjob_t *j ) {
 }
 
 
-void debug_PPS_counter(osjob_t *j){
+/*void debug_PPS_counter(osjob_t *j){
   sprintf(debug_str_buf, "one sec top ref: %lu\n", one_sec_top_ref);
   debug_str(debug_str_buf);
-}
+}*/
 
 
 
@@ -552,24 +557,24 @@ void GPIO_EVEN_IRQHandler() {
 
             if ((iof_unix_ts % BASIC_SYNCH_SECONDS) == 0){
                 //debug_str("tbr_do_sync handler\n");
-                os_setCallback(&tbr_job, sync_tbr); // basic sync every 10 sec, advanced sync when new valid time data is available (from GPS)
+                os_setCallback(&tbr_job, sync_tbr); // basic sync every 10 sec
             }
 
-            if (((iof_unix_ts)% (ADVANCE_SYNCH_SECONDS)) == 0) { // does it need new timestamp every 10 minute???
+            if ((iof_unix_ts % ADVANCE_SYNCH_SECONDS == 0) || update_GPS) {
+                update_GPS = false;
                 gnss_acquisition = true;
                 os_setCallback(&display_job, iof_update_display);
                 os_setCallback(&gnss_job, poll_navdata);
             }
 
             if((iof_unix_ts- node_id) % 5 == 0) {
+                os_setCallback(&rs232_rx_job, parse_rs232);
                 os_setCallback(&app_job, iof_app);
                 os_setCallback(&blink_job, LEDs_set);
                 os_setCallback(&display_job, iof_update_display);
               }
 
         }
-
-
 
         /*
         if(letimer_running){
@@ -623,12 +628,6 @@ void BURTC_IRQHandler(void) {
 		//sprintf(debug_str_buf, "Unix time: %lu\n", iof_unix_ts);
 		//debug_str(debug_str_buf);
 
-
-      if (ticks % 60 == 0 && DEBUG_MODE){
-          startup_time_min ++;
-          sprintf(debug_str_buf, "Time since startup in minutes %d\n", startup_time_min);
-          debug_str(debug_str_buf);
-      }
 
       if ((ticks % SYNC_PPS) == 0 && ticks !=0) {
            if(one_sec_top_ref>32000 && one_sec_top_ref<33000){
